@@ -8,6 +8,7 @@ import { counts, metrics, type Report, type Candidate, type Client, type Session
 import type { RunProfile } from './profile.ts';
 import { DetailBuilder } from './details.ts';
 import { dailyCSV } from './public-report.ts';
+import { allClientSummary } from './all-clients.ts';
 export { dailyCSV } from './public-report.ts';
 
 export interface BuildOptions {
@@ -75,6 +76,7 @@ export class ReportBuilder {
     }
     this.report.classifier_counts=this.options.classifier?.counts()??{model_calls:0,cache_hits:0,failed_calls:0};
     this.details.apply(this.report);
+    this.report.all_clients=allClientSummary(this.report);
   }
   async save(initial=false):Promise<void> {
     this.lastSavedDone=this.done;this.lastSavedAt=performance.now();

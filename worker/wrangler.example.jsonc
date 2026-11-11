@@ -5,11 +5,12 @@
   "compatibility_date": "2026-11-11",
   "workers_dev": true,
   "preview_urls": false,
-  "observability": { "enabled": false },
+  "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": false, "persist": true }, "traces": { "enabled": false } },
   "vars": {
     "REPORT_FROM": "reports@example.com",
     "REPORT_TO": "recipient@example.com",
-    "MAX_DAILY_EMAILS": "50"
+    "MAX_DAILY_EMAILS": "50",
+    "DELIVERY_LOGS": "true"
   },
   "send_email": [
     { "name": "EMAIL", "destination_address": "recipient@example.com" }

@@ -6,8 +6,8 @@ import { escapeHTML } from './person.ts';
 
 export function dashboardHTML(input:Report):string {return publicDashboardHTML(publicReport(input));}
 /** Render already-validated aggregates without creating another deep copy. */
-export function publicDashboardHTML(report:PublicReport):string {
-  const encoded=JSON.stringify(report).replace(/</g,'\\u003c');
+export function publicDashboardHTML(report:PublicReport,serializedData?:string):string {
+  const encoded=(serializedData??JSON.stringify(report)).replace(/</g,'\\u003c');
   const person=report.person?escapeHTML(report.person.name):null;
   const options='<option value="all">All clients</option>'+Object.keys(report.clients).map(c=>`<option value="${c}">${names[c as keyof typeof names]}</option>`).join('');
   const measures=Object.keys(report.clients).map(c=>`<tr><td>${names[c as keyof typeof names]}</td><td>${report.clients[c as keyof typeof report.clients]!.metric.includes('response')?'Recorded response spans':'Bounded message-gap estimate'}</td></tr>`).join('');
@@ -61,8 +61,9 @@ details summary{cursor:pointer;margin-bottom:14px}footer{border-top:1px solid va
 <section><details><summary>Daily data</summary><div id="daily-table" class="table-scroll"></div></details></section>
 <footer><details><summary>About these numbers</summary>
 <p class="note">${report.daily_ratio_interpretation}</p><p class="note">${report.telemetry_interpretation??'Detailed telemetry was not collected in this report.'}</p>
-<p class="note">All-client comparisons keep native client measurements separate. The combined estimate, when collected, counts overlapping message-gap intervals of at most three minutes once across work-classified sessions. It cannot be reconstructed from older per-client totals alone.</p>
-<p class="note">Ratios use returned TimeSentry hours on dates with recorded history, available activity measurements and positive work hours. The combined estimate counts each date's work hours once.</p>
+<p class="note">Summed agent-hours add each client's captured session durations. Parallel agents count separately: five agents for one developer hour gives five agent-hours (5×). Client measurement methods differ, so the total is a captured-activity proxy, not CPU runtime. The optional elapsed message-gap view removes overlap and is a different metric.</p>
+<p class="note">Per-client ratios and the optional elapsed estimate use returned TimeSentry hours on matched dates with positive work hours. Work hours are never counted once per client.</p>
+<p class="note">The summed all-client ratio divides all captured agent-hours by developer hours on dates with available agent history. Agent-hours on zero-work dates remain in that total, but no daily ratio is defined for a zero-hour denominator.</p>
 <table><thead><tr><th>Client</th><th>Primary activity measure</th></tr></thead><tbody>${measures}</tbody></table>
 <p class="note">This dashboard is offline and includes its aggregate JSON. Source conversations, commands, private paths and session IDs are not included.</p>
 </details></footer></main>

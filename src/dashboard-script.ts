@@ -1,7 +1,8 @@
 import { names } from './types.ts';
 import { CHARTING_SCRIPT } from './charting.ts';
+import { ALL_CLIENTS_SCRIPT } from './all-clients.ts';
 
-export const DASHBOARD_SCRIPT='const N='+JSON.stringify(names)+';'+CHARTING_SCRIPT+String.raw`
+export const DASHBOARD_SCRIPT='const N='+JSON.stringify(names)+';'+CHARTING_SCRIPT+ALL_CLIENTS_SCRIPT+String.raw`
 const R=JSON.parse(document.getElementById('report-data').textContent),$=id=>document.getElementById(id),C=Object.keys(R.clients);
 const colors=['#176c89','#49816b','#b06a3d','#77829b'],confirmed=R.timesentry_retrieval.status==='self_only_read_completed';
 const num=v=>Number.isFinite(v)?v:0,fmt=(v,d=2)=>v==null?'—':Number(v).toLocaleString('en-CA',{maximumFractionDigits:d});
@@ -30,7 +31,18 @@ function panels(detail,counts,all=false){
 }
 function topDays(days,amount,total){disposeCharts('top-days');const top=days.filter(d=>amount(d)!=null).sort((a,b)=>num(amount(b))-num(amount(a))).slice(0,5);horizontalChart('top-days',top.map(d=>d.date),[{label:'Agent activity',data:top.map(amount)}],'h','No measured activity.');$('concentration').textContent=total>0?'Top '+top.length+' dates: '+fmt(top.reduce((n,d)=>n+num(amount(d)),0)/total*100,1)+'% of activity.':'';}
 function overlap(a){horizontalChart('overlap',['Session totals','Distinct time','Overlap'],[{label:'Captured activity',data:[a?.summed_hours??null,a?.elapsed_union_hours??null,a?.overlapping_hours??null]}]);$('overlap').insertAdjacentHTML('beforeend','<p class="meta">Peak concurrency: '+fmt(a?.peak_concurrency,0)+'</p>');}
+function renderAllSum(){
+ const unit=$('period').value,isRatio=$('view').value==='ratio',totals=allClientActivity(R),rows=[];
+ if(unit==='day')for(const d of totals.rows.filter(d=>d.activity!=null))rows.push({date:d.date,values:{work:d.work,agent:isRatio?d.ratio:d.activity}});
+ else{const keys=[...new Set((R.period_summaries?.[unit]??[]).map(p=>p.period))].sort();for(const key of keys){const p=allClientActivity(R,daysIn(key,unit));rows.push({date:key,values:{work:p.paired_work_hours,agent:isRatio?p.ratio:p.captured_hours}});}}
+ cards([['Agent-hours',totals.captured_hours,'h','Parallel agents count separately'],['Matched work',totals.paired_work_hours,'h',totals.paired_days+' work dates with history'],['Agent / dev hour',totals.ratio,'×',fmt(totals.captured_hours)+' agent h / '+fmt(totals.paired_work_hours)+' work h'],['TimeSentry total',totalWork(R.days),'h','Full report period']]);
+ const series=isRatio?[{key:'agent',label:'Summed agent-hours / dev-hour',color:'var(--accent)'}]:[{key:'work',label:'Developer work hours',color:'var(--neutral)'},{key:'agent',label:'Summed captured agent-hours',color:'var(--accent)'}];legend(series);$('main-chart').innerHTML=chart(rows,series,isRatio);$('main-caption').textContent='Native client durations summed; parallel agents count separately.';
+ const measured=C.filter(c=>R.clients[c].observed_inferred_work_hours!=null);horizontalChart('overlap',measured.map(c=>N[c]),[{label:'Captured agent-hours',data:measured.map(c=>R.clients[c].observed_inferred_work_hours),backgroundColor:'var(--accent)'},{label:'Elapsed time, overlap removed',data:measured.map(c=>R.clients[c].details?.activity.elapsed_union_hours??null),backgroundColor:'var(--neutral)'}]);
+ topDays(totals.rows,d=>d.activity,totals.captured_hours);panels(undefined,R.classification_counts,true);
+ $('daily-table').innerHTML='<table><thead><tr><th>Date</th><th>Work h</th><th>Agent-hours</th><th>Agent / dev h</th></tr></thead><tbody>'+[...totals.rows].filter(d=>d.activity!=null).reverse().map(d=>'<tr><td>'+d.date+'</td><td>'+fmt(d.work)+'</td><td>'+fmt(d.activity)+'</td><td>'+fmt(d.ratio,3)+'</td></tr>').join('')+'</tbody></table>';
+}
 function renderAll(){
+ if($('measure').value==='native_sum'){renderAllSum();return;}
  const unit=$('period').value,isRatio=$('view').value==='ratio',native=$('measure').value==='native_clients',days=R.days.filter(d=>C.some(c=>d.history_observed_by_client[c]===true)),rows=[];
  if(native){
   const series=C.map((c,i)=>({key:c,label:N[c],color:colors[i]}));if(!isRatio)series.unshift({key:'work',label:confirmed?'Work hours':'Returned work hours',color:'var(--neutral)'});
@@ -68,7 +80,7 @@ function render(){
  if($('client').value==='all')renderAll();else renderClient($('client').value);
 }
 const clientMeasures='<option value="primary">Captured agent activity</option><option value="recorded_span_hours">Recorded response spans</option><option value="recorded_turn_duration_hours">Recorded turn durations</option><option value="bounded_message_gap_hours">Message-gap estimate</option>';
-function selectClient(){if($('client').value==='all'){$('measure').innerHTML=(R.combined?'<option value="combined_union">Combined activity estimate</option>':'')+'<option value="native_clients">Separate client measurements</option>';}else $('measure').innerHTML=clientMeasures;render();}
+function selectClient(){if($('client').value==='all'){$('measure').innerHTML='<option value="native_sum">Summed agent-hours</option><option value="native_clients">By client</option>'+(R.combined?'<option value="combined_union">Elapsed message-gap estimate</option>':'');}else $('measure').innerHTML=clientMeasures;render();}
 $('client').value='all';$('client').addEventListener('change',selectClient);for(const id of ['period','view','measure'])$(id).addEventListener('change',render);
 $('download').addEventListener('click',()=>{const a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(R)],{type:'application/json'}));a.href=url;a.download='agent-hours-report.json';a.click();URL.revokeObjectURL(url);});selectClient();
 globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change',render);

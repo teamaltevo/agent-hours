@@ -17,6 +17,8 @@ import { inspectLatest } from './inspect.ts';
 import { loadDelivery,sendReport } from './delivery.ts';
 import { reportBundle } from './bundle.ts';
 import { publicReport } from './public-report.ts';
+import { deliveryRecorder } from './delivery-diagnostics.ts';
+import { allClientSummary } from './all-clients.ts';
 
 export const help=`Agent Hours — private AI activity reports
 
@@ -121,6 +123,7 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     if(options.values.inspect){await inspectLatest(directory,ui,{label:options.values.label as Label,limit:Number(options.values.limit),details:Boolean(options.values.details)});return 0;}
     if(options.values['render-report']){
       const report=publicReport(await readJSON(resolve(options.values['render-report'])));
+      report.all_clients=allClientSummary(report);
       const bundle=reportBundle(report),prefix=join(directory,'reports','rebuilt-'+randomUUID());
       await privateWrite(prefix+'.json',bundle.json);await privateWrite(prefix+'.daily.csv',bundle.csv);await privateWrite(prefix+'.html',bundle.html);await privateWrite(prefix+'.zip',bundle.zip);ui.note('Dashboard: '+prefix+'.html');ui.note('Report bundle: '+prefix+'.zip');return 0;
     }
@@ -128,7 +131,9 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     if(options.values['send-report']){
       if(!delivery)throw new SafeError('delivery_not_configured');
       const report=publicReport(await readJSON(resolve(options.values['send-report'])));
-      ui.note('Sending report…');await sendReport(report,delivery,abort.signal);ui.note('Email accepted by the delivery service.');return 0;
+      const recorder=deliveryRecorder(resolve(options.values['send-report']));ui.note('Sending report…');
+      try{await sendReport(report,delivery,abort.signal,fetch,{onDiagnostic:recorder.onDiagnostic});await recorder.save('accepted').catch(()=>{});ui.note('Email accepted by the delivery service.');}
+      catch(error){await recorder.save('failed',error instanceof SafeError?error.code:'delivery_failed').catch(()=>{});ui.note('Delivery diagnostics: '+recorder.path);throw error;}return 0;
     }
     const workOnly=options.values['work-only']??await ui.historyMode();
     const since='2023-01-01',until=today();boundaries(since,until);
@@ -164,7 +169,7 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     const bundle=reportBundle(report),htmlPath=builder.path.replace(/\.json$/,'.html'),zipPath=builder.path.replace(/\.json$/,'.zip');
     await privateWrite(htmlPath,bundle.html);await privateWrite(zipPath,bundle.zip);ui.note('Dashboard: '+htmlPath);ui.note('Shareable bundle: '+zipPath);
     let exit=0;
-    if(delivery){try{ui.note('Sending report…');await sendReport(report,delivery,abort.signal);ui.note('Email accepted by the delivery service.');}catch(error){if(abort.signal.aborted)throw new SafeError('cancelled');const code=error instanceof SafeError?error.code:'delivery_failed';ui.note(errors[code]??errors.delivery_failed);exit=3;}}
+    if(delivery){const recorder=deliveryRecorder(builder.path);try{ui.note('Sending report…');await sendReport(report,delivery,abort.signal,fetch,{onDiagnostic:recorder.onDiagnostic});await recorder.save('accepted').catch(()=>{});ui.note('Email accepted by the delivery service.');}catch(error){const code=error instanceof SafeError?error.code:'delivery_failed';await recorder.save('failed',code).catch(()=>{});ui.note('Delivery diagnostics: '+recorder.path);if(abort.signal.aborted)throw new SafeError('cancelled');ui.note(errors[code]??errors.delivery_failed);exit=3;}}
     if(ui.interactive&&!options.values['no-open'])await openBrowser(pathToFileURL(htmlPath).href).catch(()=>ui.note('Open the saved dashboard file to view your report.'));
     return exit;
   } catch(error) {

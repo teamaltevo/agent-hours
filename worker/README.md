@@ -29,8 +29,22 @@ performed by the application.
    default endpoint constant if deploying a different receiver.
 
 `worker/wrangler.jsonc`, local development secrets and `.wrangler/` state are ignored.
-Worker observability is disabled in the example config, and handlers never log
-request bodies, bearer tokens, report contents or provider error bodies.
+Worker observability stores only explicit sanitized stage logs. Automatic HTTP
+invocation logs are disabled and query strings are redacted. Handlers never log
+report bodies, names, participant codes, email addresses, headers, source paths,
+credentials or provider error bodies. Stage logs contain a request UUID, opaque
+receipt hash, elapsed milliseconds, byte counts, status and fixed error codes.
+
+Historical requests made before this logging was enabled have only the D1 receipt
+and preparation state; their exception details cannot be recovered retrospectively.
+New CLI failures save a separate `*.delivery-*.json` diagnostic file alongside the
+report, including the request UUID needed to correlate the Worker logs. These
+diagnostic files are not uploaded automatically.
+
+The same sanitized stages are checkpointed in D1's `delivery_events` table so a
+platform interruption does not erase the last completed preparation step. Incoming
+report requests prune events older than seven days. Search by a diagnostic request
+UUID or opaque receipt, never by employee name (identities are not stored there).
 
 ## Delivery semantics
 
@@ -40,6 +54,9 @@ request bodies, bearer tokens, report contents or provider error bodies.
   duplicate requests may conservatively consume slots without sending email.
 - Strict report allowlisting; recipients, raw ZIPs and arbitrary HTML cannot be supplied.
 - Server-built ZIP limited to 6 MiB before base64 encoding.
+- ZIP files are encoded/compressed incrementally rather than allocating complete
+  UTF-8 buffers for multi-megabyte JSON and HTML files at the same time. The
+  validated report object is released before compression begins.
 - Fixed sender and recipient from deployment configuration, also restricted by the
   Email Routing binding. Cloudflare must verify the destination before delivery works.
 - D1 deduplicates identical normalized reports per participant code. It stores only

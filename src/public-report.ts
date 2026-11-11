@@ -2,6 +2,7 @@
 import { clients,labels,metrics,toolCategories,reasonCodes,type Report,type Client,type DailyDetails,type Distribution,type ToolSummaryLeaf } from './types.ts';
 import { applyTimeSentryHours } from './ratio-policy.ts';
 import { displayName } from './person.ts';
+import { allClientActivity,allClientSummary } from './all-clients.ts';
 declare const publicReportBrand:unique symbol;
 export type PublicReport=Report&{readonly [publicReportBrand]:true};
 
@@ -40,7 +41,7 @@ function combinedPeriod(value:any,unit:'week'|'month'):NonNullable<Report['combi
 /** Reconstruct, don't forward. Unknown/raw fields are rejected and explanatory
  * prose is generated locally so it cannot smuggle transcript data into email. */
 export function publicReport(input:any):PublicReport {
-  object(input,['schema_version','implementation','since','until','timezone','current_day_in_progress','work_ownership_source','timesentry_coverage','timesentry_retrieval','daily_ratio_policy','daily_ratio_interpretation','primary_ratio_client','classification_counts','classifier_counts','unknown_reason_counts','clients','days','observed_day_aggregates','default_aggregate','processed_sessions','pending_sessions','processed_session_count','pending_session_count','run_status','profiling','telemetry_schema_version','telemetry_interpretation','period_summaries','combined','person']);
+  object(input,['schema_version','implementation','since','until','timezone','current_day_in_progress','work_ownership_source','timesentry_coverage','timesentry_retrieval','daily_ratio_policy','daily_ratio_interpretation','primary_ratio_client','classification_counts','classifier_counts','unknown_reason_counts','clients','days','observed_day_aggregates','default_aggregate','processed_sessions','pending_sessions','processed_session_count','pending_session_count','run_status','profiling','telemetry_schema_version','telemetry_interpretation','period_summaries','combined','person','all_clients']);
   if(input.schema_version!==5||input.implementation!=='bun-typescript-v1'||input.timezone!=='America/Toronto'||typeof input.current_day_in_progress!=='boolean')return fail();
   const retrieval=object(input.timesentry_retrieval,['status','scope_completeness']);if(retrieval.status!=='self_only_read_completed')return fail();
   const since=iso(input.since),until=iso(input.until);if(since>until||Date.parse(until)-Date.parse(since)>3660*86400000)return fail();
@@ -65,7 +66,9 @@ export function publicReport(input:any):PublicReport {
     report.combined={metric:c.metric,aggregate:{metric:c.metric,paired_days:num(a.paired_days)!,captured_activity_hours:num(a.captured_activity_hours,true),developer_hours:num(a.developer_hours,true),ratio:num(a.ratio,true)},details:details(c.details),period_summaries:periods};
   }
   // Runtime profiling is useful locally but is intentionally not uploaded.
-  return applyTimeSentryHours(report) as PublicReport;
+  applyTimeSentryHours(report);
+  if(input.all_clients!==undefined){const a=object(input.all_clients,['metric','paired_days','captured_activity_hours','developer_hours','ratio']);if(a.metric!=='summed_native_client_activity_ms')return fail();report.all_clients=allClientSummary(report);}
+  return report as PublicReport;
 }
 export function dailyCSV(report:Report):string {
   const header=['date','timezone','client','metric','history_observed','captured_work_hours','developer_hours','ratio','ratio_status','day_status','elapsed_activity_hours','peak_concurrency','recorded_turn_hours','recorded_span_hours','message_gap_hours','tool_calls','tool_failures','tool_missing_duration','tool_recorded_ms','tool_round_trip_ms','tool_median_recorded_ms','tool_p95_recorded_ms','input_tokens','output_tokens','cache_read_tokens','cache_write_tokens','reasoning_tokens','reported_estimated_cost_usd','work_sessions','personal_sessions','mixed_sessions','unknown_sessions','keyword_work_sessions','model_work_sessions','declared_work_sessions',...toolCategories.flatMap(c=>[c+'_calls',c+'_recorded_ms',c+'_round_trip_ms'])];
@@ -74,6 +77,14 @@ export function dailyCSV(report:Report):string {
     if(day.history_observed_by_client[client]!==true)continue;const d=day.details_by_client?.[client];
     const row=[day.date,report.timezone,client,metrics[client],'True',day.captured_work_hours_by_client[client]??'',day.developer_hours??'',day.ratios_by_client[client]??'',day.ratio_status_by_client[client],day.day_status,d?.activity.elapsed_union_hours??'',d?.activity.peak_concurrency??'',d?.activity.recorded_turn_duration_hours??'',d?.activity.recorded_span_hours??'',d?.activity.bounded_message_gap_hours??'',d?.tools.calls??'',d?.tools.failure??'',d?.tools.missing_duration??'',d?.tools.recorded_duration.count?d.tools.recorded_duration.total_ms:'',d?.tools.observed_round_trip.count?d.tools.observed_round_trip.total_ms:'',d?.tools.recorded_duration.median_ms??'',d?.tools.recorded_duration.p95_ms??'',d?.usage.input_tokens??'',d?.usage.output_tokens??'',d?.usage.cache_read_tokens??'',d?.usage.cache_write_tokens??'',d?.usage.reasoning_tokens??'',d?.usage.reported_estimated_cost_usd??'',d?.sessions.work??'',d?.sessions.personal??'',d?.sessions.mixed??'',d?.sessions.unknown??'',d?.attribution.keyword??'',d?.attribution.model??'',d?.attribution.declared??'',...toolCategories.flatMap(c=>{const t=d?.tools.by_category[c];return [t?.calls??'',t?.recorded_duration.count?t.recorded_duration.total_ms:'',t?.observed_round_trip.count?t.observed_round_trip.total_ms:''];})];
     rows.push(row.join(','));
+  }
+  const lookup=new Map(report.days.map(d=>[d.date,d]));
+  for(const value of allClientActivity(report).rows){
+    if(value.activity===null)continue;const d=lookup.get(value.date)!,detail=d.combined?.details,t=detail?.tools;
+    const values:Record<string,unknown>={date:value.date,timezone:report.timezone,client:'all',metric:'summed_native_client_activity_ms',history_observed:'True',captured_work_hours:value.activity,developer_hours:value.work,ratio:value.ratio,ratio_status:value.work===0?'zero_developer_hours':'observed_subset_proxy',day_status:d.day_status};
+    if(t){Object.assign(values,{tool_calls:t.calls,tool_failures:t.failure,tool_missing_duration:t.missing_duration,tool_recorded_ms:t.recorded_duration.count?t.recorded_duration.total_ms:null,tool_round_trip_ms:t.observed_round_trip.count?t.observed_round_trip.total_ms:null,tool_median_recorded_ms:t.recorded_duration.median_ms,tool_p95_recorded_ms:t.recorded_duration.p95_ms});for(const c of toolCategories){const v=t.by_category[c];values[c+'_calls']=v.calls;values[c+'_recorded_ms']=v.recorded_duration.count?v.recorded_duration.total_ms:null;values[c+'_round_trip_ms']=v.observed_round_trip.count?v.observed_round_trip.total_ms:null;}}
+    if(detail){for(const key of labels)values[key+'_sessions']=detail.sessions[key];values.keyword_work_sessions=detail.attribution.keyword;values.model_work_sessions=detail.attribution.model;values.declared_work_sessions=detail.attribution.declared;}
+    rows.push(header.map(key=>values[key]??'').join(','));
   }
   return rows.join('\n')+'\n';
 }

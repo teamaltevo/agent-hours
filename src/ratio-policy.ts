@@ -1,4 +1,5 @@
 import { metrics,type Report,type Client } from './types.ts';
+import { allClientSummary } from './all-clients.ts';
 
 /** TimeSentry's successful self-only read contains the full returned hours.
  * Old confirmation flags are deliberately ignored when rebuilding saved data. */
@@ -33,6 +34,7 @@ export function applyTimeSentryHours(report:Report):Report {
       p.developer_hours=days.reduce((n,d)=>n+(d.developer_hours??0),0);p.paired_days=paired.length;p.paired_activity_hours=paired.length?a:null;p.paired_developer_hours=paired.length?w:null;p.ratio=paired.length?a/w:null;p.days_with_activity_and_zero_work=days.filter(d=>(d.combined?.captured_work_hours??0)>0&&d.developer_hours===0).length;
     }
   }
+  if(report.all_clients)report.all_clients=allClientSummary(report);
   return report;
 }
 function periodDays(report:Report,period:string,unit:'week'|'month'){

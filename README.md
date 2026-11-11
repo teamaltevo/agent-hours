@@ -83,12 +83,24 @@ These are observed-history proxies, not guaranteed bounds or measures of
 productivity, compute runtime, human work or billing. Estimates may overcount or
 miss activity, and history-date selection can bias the result.
 
-The dashboard has an **All clients** view. Native measurements can be compared
-side by side without adding unlike metrics. New reports also include a combined
-estimate: the union of bounded message-gap intervals across work-classified
-sessions, with overlap removed and each date's work hours counted once. Older
-exports still support the side-by-side view, but cannot reconstruct a cross-client
-overlap estimate from per-client totals alone.
+The **All clients** view defaults to **Summed agent-hours**: native captured
+session durations are added, including parallel agents. Five agents running for
+one developer hour count as five agent-hours (5×). The all-client ratio divides
+captured agent-hours by developer hours on dates with available agent history,
+counting each date's work hours once. Zero-work dates keep their captured
+agent-hours in the total but have no defined daily ratio. Client methods differ,
+so this remains a captured-activity proxy, not CPU runtime or productivity.
+
+The **By client** view keeps source series separate. The optional **Elapsed
+message-gap estimate** removes overlap and is a different measurement, not a
+replacement for summed agent-hours. Older exports can calculate summed totals
+but cannot reconstruct cross-client overlap from per-client totals alone.
+
+For spreadsheet totals, filter `daily.csv` to **`client=all`**. Per-client rows
+repeat the day's TimeSentry hours for comparison; adding those denominators
+across clients would count the same developer time multiple times.
+New JSON exports also include the lightweight `all_clients` summary, separately
+from the optional `combined` message-gap elapsed estimate.
 
 ### Detailed measurements
 

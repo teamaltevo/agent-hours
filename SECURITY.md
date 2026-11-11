@@ -41,6 +41,12 @@ command text, tool output, private session IDs, paths and credentials are exclud
 Aggregated work hours, dates and activity measurements can still be sensitive.
 Email recipients and the mail infrastructure necessarily receive that aggregate data.
 
+Delivery diagnostics are deliberately separate from report content. Worker logs
+contain only stage/error enums, random request UUIDs, opaque receipt hashes,
+elapsed time, byte sizes and HTTP status. Names, email addresses, headers,
+payloads, commands and paths are not logged; automatic invocation logs and traces
+are disabled. CLI transport diagnostics follow the same restrictions.
+
 Reports also include the person's display name when TimeSentry provides one,
 or a name derived from their own returned `@altevo.ca` address when the profile
 name is absent. This is an explicitly allowed personal-data field; raw email

@@ -43,7 +43,7 @@ test('conflicting evidence remains unknown even when declared work-only',async()
   const c=candidate('a');c.metadata.conflict=true;c.metadata.reasons.add('conflicting_messages');const report=await builder([c]).run();expect(report.classification_counts.unknown).toBe(1);expect(report.classification_counts.work).toBe(0);expect(report.days[0].captured_work_hours_by_client.opencode).toBe(0);
 });
 test('CSV contains only observed history with fixed client fields',async()=>{
-  const report=await builder([candidate('a')]).run();const csv=dailyCSV(report);expect(csv.split('\n').filter(Boolean).length).toBe(2);expect(csv).not.toContain('PRIVATE');expect(csv).toContain('recorded_assistant_response_span_ms');
+  const report=await builder([candidate('a')]).run();const csv=dailyCSV(report);expect(csv.split('\n').filter(Boolean).length).toBe(3);expect(csv).not.toContain('PRIVATE');expect(csv).toContain('recorded_assistant_response_span_ms');expect(csv).toContain('summed_native_client_activity_ms');
 });
 test('new runs never overwrite previous outputs',async()=>{
   const a=builder([candidate('a')]),b=builder([candidate('b')]);await a.run();const original=await readFile(a.path,'utf8');await b.run();expect(a.path).not.toBe(b.path);expect(await readFile(a.path,'utf8')).toBe(original);

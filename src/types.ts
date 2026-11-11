@@ -67,6 +67,7 @@ export interface Report {
   telemetry_schema_version?:1; telemetry_interpretation?:string;
   period_summaries?:{week:PeriodSummary[];month:PeriodSummary[]};
   combined?:{metric:'cross_client_message_gap_union_ms';aggregate:Aggregate;details:DailyDetails;period_summaries:{week:CombinedPeriod[];month:CombinedPeriod[]}};
+  all_clients?:Aggregate;
 }
 export interface PeriodSummary { period:string; client:Client; developer_hours:number|null; captured_work_hours:number|null; paired_days:number; paired_activity_hours:number|null; paired_developer_hours:number|null; ratio:number|null; days_with_activity_and_zero_work:number; details:DailyDetails }
 export interface CombinedDay {history_observed:boolean;captured_work_hours:number|null;ratio:number|null;ratio_status:string;details:DailyDetails}

@@ -1,4 +1,4 @@
-import { expect,test,afterEach } from 'bun:test';
+import { expect,test,afterEach,spyOn } from 'bun:test';
 import worker,{type Env,type EmailPayload} from '../worker/src/index.ts';
 import { sampleReport } from './fixtures.ts';
 import { unzipSync,strFromU8 } from 'fflate';
@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { publicReport } from '../src/public-report.ts';
 import { createHash } from 'node:crypto';
 
-const migrations=['0001_submissions.sql','0002_email_daily_budget.sql','0003_preparation_leases.sql'].map(file=>readFileSync('worker/migrations/'+file,'utf8'));
+const migrations=['0001_submissions.sql','0002_email_daily_budget.sql','0003_preparation_leases.sql','0004_delivery_events.sql'].map(file=>readFileSync('worker/migrations/'+file,'utf8'));
 const databases=new Set<Database>();afterEach(()=>{for(const db of databases)db.close();databases.clear();});
 
 function env(){
@@ -93,4 +93,9 @@ test('older clients cannot mistake an in-progress preparation for delivered emai
 test('the TimeSentry display name labels the email and embedded dashboard',async()=>{
   const e=env(),report=sampleReport();report.person={name:'Synthetic Person',source:'timesentry_profile'};
   expect((await worker.fetch(request({version:1,participant:'assigned-code',report}),e.value)).status).toBe(200);expect(e.sent[0].subject).toContain('Synthetic Person');const files=unzipSync(Uint8Array.from(atob(e.sent[0].attachments[0].content),c=>c.charCodeAt(0)));expect(strFromU8(files['report.html'])).toContain('<h1>Synthetic Person</h1>');
+});
+test('enabled execution logs record stages without report contents or identity',async()=>{
+  const e=env();e.value.DELIVERY_LOGS='true';const report=sampleReport();report.person={name:'Sensitive Person',source:'timesentry_profile'};
+  const lines:string[]=[],spy=spyOn(console,'info').mockImplementation(value=>{lines.push(String(value));});
+  try{const response=await worker.fetch(request({version:1,participant:'SENSITIVE_CODE',report}),e.value);expect(response.status).toBe(200);const events=lines.map(line=>JSON.parse(line));expect(events.map(e=>e.stage)).toContain('prepare_started');expect(events.map(e=>e.stage)).toContain('bundle_ready');expect(events.map(e=>e.stage)).toContain('email_accepted');expect(events.map(e=>e.stage)).not.toContain('email_uncertain');expect(events.every(e=>e.request_id===response.headers.get('X-Delivery-Request-Id'))).toBe(true);expect(lines.join('')).not.toContain('Sensitive Person');expect(lines.join('')).not.toContain('SENSITIVE_CODE');expect(lines.join('')).not.toContain('PRIVATE_');expect(lines.join('')).not.toContain('recipient@example.com');const stored=e.db.query('SELECT * FROM delivery_events').all() as any[];expect(stored.map(r=>r.stage)).toContain('prepare_started');expect(stored.map(r=>r.stage)).toContain('email_accepted');expect(JSON.stringify(stored)).not.toContain('Sensitive Person');expect(JSON.stringify(stored)).not.toContain('SENSITIVE_CODE');}finally{spy.mockRestore();}
 });
