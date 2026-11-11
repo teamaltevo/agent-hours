@@ -1,6 +1,6 @@
 # Report email Worker
 
-The Worker accepts authenticated aggregate reports at `POST /reports`, validates
+The Worker accepts aggregate reports bearing a public phrase at `POST /reports`, validates
 their schema, rebuilds an offline report ZIP and sends it to one configured recipient.
 It uses Cloudflare's existing Email Routing `EmailMessage` API; the newer Email
 Sending beta service is not required. No domain DNS or mail-routing changes are
@@ -18,14 +18,15 @@ performed by the application.
 3. Copy `wrangler.example.jsonc` to ignored `wrangler.jsonc`. Set `account_id`, the
    sender, recipient, binding destination and a unique rate-limit namespace.
 4. Create a **new** D1 database, update its ID in the private config and apply
-   `migrations/0001_submissions.sql` with `wrangler d1 migrations apply ... --remote`.
+   all migrations with `wrangler d1 migrations apply ... --remote`.
    Do not reuse an unrelated application database.
-5. Create a high-entropy upload token and put it in `UPLOAD_TOKEN` using
-   `wrangler secret put UPLOAD_TOKEN --config worker/wrangler.jsonc` from the repository
-   root. The interactive prompt keeps the key out of process arguments. Give the
-   same key to authorized report submitters through a private channel, not Git.
+5. The client and Worker share the public phrase in `src/submission-config.ts`.
+   No secret needs provisioning. This is a convenience marker, **not access control**.
+   Configure `MAX_DAILY_EMAILS` (default 50) to cap email attempts across all locations
+   per UTC day. A public submitter can still exhaust that budget.
 6. Run `bun run worker:check`, then `bun run worker:deploy`. Configure clients with
-   the deployed HTTPS `/reports` URL and the upload key as described in the root README.
+   the deployed HTTPS `/reports` URL as described in the root README. Update the
+   default endpoint constant if deploying a different receiver.
 
 `worker/wrangler.jsonc`, local development secrets and `.wrangler/` state are ignored.
 Worker observability is disabled in the example config, and handlers never log
@@ -33,7 +34,10 @@ request bodies, bearer tokens, report contents or provider error bodies.
 
 ## Delivery semantics
 
-- Authentication, approximate per-credential rate limiting and an 8 MiB request cap.
+- Public phrase check, approximate short-window rate limiting and an 8 MiB request cap.
+- D1 atomically reserves a daily email-attempt slot before each new submission;
+  duplicate confirmed submissions do not consume a slot. Failures and racing
+  duplicate requests may conservatively consume slots without sending email.
 - Strict report allowlisting; recipients, raw ZIPs and arbitrary HTML cannot be supplied.
 - Server-built ZIP limited to 6 MiB before base64 encoding.
 - Fixed sender and recipient from deployment configuration, also restricted by the
@@ -43,7 +47,9 @@ request bodies, bearer tokens, report contents or provider error bodies.
 - `sent` means the email binding accepted the message, not confirmed inbox delivery.
 - Ambiguous failures remain `uncertain` and are **not automatically resent**. An
   administrator must investigate before resetting a receipt or requesting a new send.
-- The limiter is approximate per Cloudflare location, not a strict global sending quota.
+- The short-window limiter is approximate per Cloudflare location. The separate
+  D1 daily budget is shared globally. Neither verifies a submitter's identity;
+  the public phrase allows fabricated reports and quota-exhaustion attacks.
   Large report compression may require a Workers plan with sufficient CPU limits.
 
 `GET /health` is a public liveness check. It does not prove recipient verification

@@ -32,7 +32,7 @@ export const help=`Agent Hours — private AI activity reports
   --codex-root PATH         Codex history folder (repeatable)
   --claude-desktop-export PATH  Extracted Claude conversations.json (repeatable)
   --data-dir PATH           Private settings and output directory
-  --submit-url HTTPS_URL    Automatically email aggregates through your Worker
+  --submit-url HTTPS_URL    Override the default report delivery Worker
   --participant CODE        Optional assigned participant code, not an account ID
   --no-send                 Keep this run local even when delivery is configured
   --send-report PATH        Submit a completed saved JSON report without rereading history
@@ -87,7 +87,22 @@ export async function sourcesFor(directory:string,options:ReturnType<typeof argu
   return Object.fromEntries(options.clients.map(c=>[c,validateRoots(all[c],home)]));
 }
 const errors:Record<string,string>={
-  invalid_options:'Invalid options. Run agent-hours --help for usage.',invalid_source_folder:'Select a client history folder, not your home or projects folder.',invalid_source_config:'The saved source settings are invalid.',invalid_report_policy:'The saved report policy is invalid.',invalid_project_alias_config:'The project alias file is missing or invalid.',model_unavailable:'No default model is configured. Configure a model in OpenCode first.',browser_open_failed:'Could not open your browser. Check your default browser and try again.',sign_in_timeout:'Sign-in timed out. Try again and complete sign-in in your browser.',sign_in_failed:'Sign-in failed. Check your TimeSentry account access and try again.',authorization_url_rejected:'TimeSentry requested an unexpected sign-in scope or endpoint. Sign-in was stopped.',index_unavailable:'No private session index is available in this data directory.',invalid_delivery_config:'The delivery settings are invalid. Use an HTTPS Worker endpoint ending in /reports.',delivery_token_missing:'The upload token environment variable is missing. Configure it before automatic delivery.',delivery_not_configured:'No email delivery endpoint is configured.',delivery_failed:'Email submission failed or is uncertain. Your local report is unchanged; do not retry repeatedly.',incomplete_report_not_sent:'Incomplete reports cannot be emailed automatically.',cancelled:'Cancelled.'
+  invalid_options:'Invalid options. Run agent-hours --help for usage.',
+  invalid_source_folder:'Select a client history folder, not your home or projects folder.',
+  invalid_source_config:'The saved source settings are invalid.',
+  invalid_report_policy:'The saved report policy is invalid.',
+  invalid_project_alias_config:'The project alias file is missing or invalid.',
+  model_unavailable:'No default model is configured. Configure a model in OpenCode first.',
+  browser_open_failed:'Could not open your browser. Check your default browser and try again.',
+  sign_in_timeout:'Sign-in timed out. Try again and complete sign-in in your browser.',
+  sign_in_failed:'Sign-in failed. Check your TimeSentry account access and try again.',
+  authorization_url_rejected:'TimeSentry requested an unexpected sign-in scope or endpoint. Sign-in was stopped.',
+  index_unavailable:'No private session index is available in this data directory.',
+  invalid_delivery_config:'The delivery settings are invalid. Use an HTTPS Worker endpoint ending in /reports.',
+  delivery_not_configured:'Delivery is disabled. Omit --no-send to submit a saved report.',
+  delivery_failed:'Email submission failed or is uncertain. Your local report is unchanged; do not retry repeatedly.',
+  incomplete_report_not_sent:'Incomplete reports cannot be emailed automatically.',
+  cancelled:'Cancelled.'
 };
 export async function main(argv=process.argv.slice(2)):Promise<number> {
   let options:ReturnType<typeof argumentsFor>;
@@ -129,7 +144,8 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     ui.note('TimeSentry opens in your browser; only your own hours are read. Nothing is changed.');
     ui.note('Reports contain totals, not conversations. Private session IDs and paths stay under local/.');
     if(delivery)ui.note('After completion, aggregate JSON is automatically uploaded to '+delivery.endpoint+' for email delivery. Commands, conversations and private indexes are not uploaded.');
-    if(!await ui.confirm(workOnly?'Read timing history and sign in?':'Allow conversation classification and sign in?',!workOnly)){ui.note('Cancelled.');return 0;}
+    const confirmation=delivery?(workOnly?'Read timing history, sign in and email the aggregate report?':'Classify history, sign in and email the aggregate report?'):(workOnly?'Read timing history and sign in?':'Allow conversation classification and sign in?');
+    if(!await ui.confirm(confirmation,!workOnly)){ui.note('Cancelled.');return 0;}
     abort.signal.throwIfAborted();
     const timesentry=await profile.measure('oauth_read',()=>fetchTimeSentry(since,until,{consent:true,projects:!workOnly,onBrowser:()=>ui.note('Complete Microsoft sign-in in your browser (up to 5 minutes).'),signal:abort.signal}));
     ui.note('Connected to TimeSentry.');

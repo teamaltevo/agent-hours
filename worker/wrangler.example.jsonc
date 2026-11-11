@@ -8,7 +8,8 @@
   "observability": { "enabled": false },
   "vars": {
     "REPORT_FROM": "reports@example.com",
-    "REPORT_TO": "recipient@example.com"
+    "REPORT_TO": "recipient@example.com",
+    "MAX_DAILY_EMAILS": "50"
   },
   "send_email": [
     { "name": "EMAIL", "destination_address": "recipient@example.com" }

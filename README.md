@@ -3,6 +3,10 @@
 Private AI activity reports for OpenCode, Claude Code, Codex and Claude Chat
 exports (Desktop/web), compared with your own TimeSentry hours.
 
+**Delivery notice:** after the privacy/consent screen, completed runs submit
+sanitized aggregate reports to the default Altevo reporting Worker for email
+delivery. Use `--no-send` to keep a run local. No upload key setup is required.
+
 ## Run
 
 Requires **Bun 1.4.2+**. Mixed-use classification also requires OpenCode V2 with
@@ -19,8 +23,8 @@ and Escape to cancel. F1 shows model advice. Use `--no-color` or `NO_COLOR=1`
 for the plain interface, where `/name` or `/provider` filters the numbered list.
 Search matches model names, IDs and providers, including multiple search words.
 
-After the privacy disclosure, conversation classification and sign-in use a
-`[Y/n]` prompt: Enter continues; `n` cancels. Work-only timing access still asks
+After the privacy disclosure, conversation classification, sign-in and enabled
+report delivery use a `[Y/n]` prompt: Enter continues; `n` cancels. Work-only timing access still asks
 for explicit confirmation with a `[y/N]` prompt.
 
 ## Sources and output
@@ -120,28 +124,36 @@ Official references: [Claude data export](https://support.claude.com/en/articles
 
 ## Automatic email delivery
 
-A configured Cloudflare Worker can automatically email completed reports to its
+The default Cloudflare Worker automatically emails completed reports to its
 fixed recipient. The CLI uploads **only allowlisted aggregate JSON** over HTTPS;
 the Worker validates it again and rebuilds the attached ZIP itself. No conversations,
 commands, tool output, source paths, private IDs, runtime profiling or credentials
 are uploaded. No raw archive or caller-selected recipient is accepted.
 
-Configure the data directory's ignored `local/delivery.json` once:
+The client and Worker use the public phrase **`altevo-agent-hours`**, stored in
+`src/submission-config.ts` and sent in the `X-Report-Phrase` header. This is **not
+authentication**: anyone who reads the repository can submit fabricated reports.
+The phrase does not prove TimeSentry sign-in, company membership or report accuracy.
+
+The receiver retains schema validation, a fixed recipient, approximate short-window
+rate limiting, deduplication and a D1-enforced cap of **50 email attempts per UTC
+day** by default. Someone can still consume that allowance and block legitimate
+submissions. Use real authentication if the endpoint needs stronger protection.
+
+To override the receiver or supply a participant code, use ignored
+`local/delivery.json`:
 
 ```json
 {
   "endpoint": "https://your-worker.workers.dev/reports",
-  "token_env": "AGENT_HOURS_UPLOAD_TOKEN",
+  "phrase": "altevo-agent-hours",
   "participant": "assigned-code"
 }
 ```
 
-Provide the separate report-upload token through that environment variable. An
-owner-only `local/delivery-upload-token` file is also supported by explicitly
-adding `"token_file": "delivery-upload-token"` to the configuration. This upload
-key is separate from TimeSentry and model credentials; never commit or share it
-publicly. An assigned participant code is optional and is not taken from account
-identifiers or private paths.
+An assigned participant code is optional and is not taken from account identifiers
+or private paths. Old upload-token settings are ignored and credential files are
+not read for report submission. TimeSentry and model credentials are never included.
 
 `AGENT_HOURS_SUBMIT_URL`, `AGENT_HOURS_PARTICIPANT`, `--submit-url` and `--participant`
 can supply run-level overrides. Use `--no-send` to keep a run local. The privacy
@@ -156,7 +168,8 @@ bun run start --send-report /path/to/completed-report.json
 ```
 
 Identical submissions are deduplicated by report hash in D1. The database stores
-only hashes, delivery state and timestamps—not reports or participant identities.
+only hashes, delivery state, timestamps and daily quota counters—not reports or
+participant identities.
 Email acceptance is not a guarantee of inbox delivery. See [Worker setup](worker/README.md)
 for recipient verification and deployment.
 
@@ -181,6 +194,14 @@ Python's standard library and are not required by the CLI. Their regression test
 can be run with `python3 -m unittest discover -s tests`.
 
 The browser OAuth flow has synthetic integration coverage but still needs a live
-TimeSentry validation. The package is private and unpublished. Its `agent-hours`
-executable has been tested through a locally packaged `bunx` invocation; a public
-registry command requires choosing a package name and publishing first.
+TimeSentry validation. The package is not published to npm. Once the GitHub
+repository is public, it can be run without registry publication:
+
+```sh
+bunx --package github:teamaltevo/agent-hours agent-hours
+```
+
+The `github:` download does not reuse GitHub CLI authentication for a private repo
+in our tested Bun version. For private use, clone with `gh repo clone` and run the
+local install instructions above. See [Security and public deployment](SECURITY.md)
+before exposing the repository or using the public report endpoint.
