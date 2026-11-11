@@ -25,7 +25,15 @@ export class UI {
     process.stdout.write('  '+clean(prompt)+' > ');
     const next=await this.answers!.next();if(next.done) throw new SafeError('cancelled');return next.value.trim();
   }
-  async confirm(prompt:string):Promise<boolean> {return /^(y|yes)$/i.test(await this.ask(prompt+' [y/N]'));}
+  async confirm(prompt:string,defaultYes=false):Promise<boolean> {
+    while(true){
+      const answer=(await this.ask(prompt+(defaultYes?' [Y/n]':' [y/N]'))).toLowerCase();
+      if(!answer)return defaultYes;
+      if(answer==='y'||answer==='yes')return true;
+      if(answer==='n'||answer==='no')return false;
+      this.note('Choose y or n.');
+    }
+  }
   async historyMode():Promise<boolean> {
     this.title('Your history');this.note('Choose Yes if any history is personal, mixed-use or uncertain.');
     this.note('Choose No only if all selected history is your own work; conversation classification is skipped.');
@@ -38,19 +46,21 @@ export class UI {
     if(this.color){this.close();return keyboardPicker(defaultModel,all);}
     this.title('Classification model');this.note('Fast models lower cost; stronger reasoning helps mixed history.');
     this.note('Conversation excerpts go to this provider. Use a verified local provider to keep them on-device.');
-    this.note('Search by name, select a number, or Enter for '+defaultModel.providerID+'/'+defaultModel.id+'.');
+    this.note('Search with /name or /provider, or type a search directly. Select a number to use a result.');
+    this.note('Enter uses '+defaultModel.providerID+'/'+defaultModel.id+'.');
     this.note('n/p pages · / clear · q cancel');
     let query='',page=0;
     while(true){
       const found=matchingModels(all,query);page=Math.min(page,Math.max(0,Math.ceil(found.length/10)-1));
       found.slice(page*10,page*10+10).forEach((m,i)=>this.note(`${i+1}. ${m.name??m.id} (${m.providerID}/${m.id})`));
-      if(!found.length)this.note('No matches.');else this.note(`Page ${page+1}/${Math.ceil(found.length/10)} · ${found.length} models`);
-      const choice=await this.ask('Model');
+      if(query)this.note('Search: '+query);
+      if(!found.length)this.note('No matches. Try another search or / to clear.');else this.note(`Page ${page+1}/${Math.ceil(found.length/10)} · ${found.length} of ${all.length} models`);
+      const choice=await this.ask('Search /name or select a number');
       if(!choice)return {id:defaultModel.id,providerID:defaultModel.providerID};
       if(choice==='q')return null;
       if(choice==='n')page++;else if(choice==='p')page=Math.max(0,page-1);else if(choice==='/'){query='';page=0;}
       else if(/^\d+$/.test(choice)){const selected=found[page*10+Number(choice)-1];if(Number(choice)>=1&&Number(choice)<=10&&selected)return {id:selected.id,providerID:selected.providerID};}
-      else {query=choice;page=0;}
+      else {query=choice.startsWith('/')?choice.slice(1):choice;page=0;}
     }
   }
   progress(done:number,total:number,active=0):void {
@@ -94,14 +104,14 @@ export function keyboardPicker(defaultModel:Model,models:Model[],input=process.s
       const parts=['\x1b[H\x1b[2J'];
       function line(y:number,text:string,inverse=false){if(y>=height)return;parts.push(`\x1b[${y+1};3H`+(inverse?'\x1b[7m':'')+clean(text).slice(0,Math.max(1,width-4))+(inverse?'\x1b[0m':''));}
       if(width<42||height<12){line(0,'Enlarge terminal or Esc to cancel.');output.write(parts.join(''));return;}
-      line(1,'CHOOSE A CLASSIFICATION MODEL');line(2,'Type to search · ↑↓ browse · Enter select · Esc cancel');
-      line(4,'Search: '+query+'_');line(5,found.length+' available models');
+      line(1,'CHOOSE A CLASSIFICATION MODEL');line(2,'Search: type a model or provider · ↑↓ browse · Enter select');
+      line(4,'/ '+query+'_');line(5,`${found.length} of ${models.length} models${query?' matching your search':''}`);
       const start=Math.floor(selected/rows)*rows;
-      found.slice(start,start+rows).forEach((m,i)=>line(7+i,`${start+i===selected?'›':' '} ${m.name??m.id}${m.id===defaultModel.id&&m.providerID===defaultModel.providerID?' [default]':''}`,start+i===selected));
+      found.slice(start,start+rows).forEach((m,i)=>line(7+i,`${start+i===selected?'›':' '} ${m.name??m.id} · ${m.providerID}${m.id===defaultModel.id&&m.providerID===defaultModel.providerID?' [default]':''}`,start+i===selected));
       if(!found.length)line(7,'No matches. Backspace to edit; Ctrl+U to clear.');
       if(found[selected])line(height-4,found[selected].providerID+'/'+found[selected].id);
       line(height-3,help?'Fast models cost less; stronger reasoning helps mixed history.':'Conversation excerpts are sent to the selected provider.');
-      line(height-2,help?'Verify a local provider to keep data on-device. F1 closes help.':'F1 advice · Ctrl+U clear · Page Up/Down browse');
+      line(height-2,help?'Verify a local provider to keep data on-device. F1 closes help.':'Esc cancel · Ctrl+U clear search · F1 advice · PgUp/Down browse');
       output.write(parts.join(''));
     }
     function key(text:string,key:Key){
@@ -114,6 +124,7 @@ export function keyboardPicker(defaultModel:Model,models:Model[],input=process.s
         else if(key.name==='pageup')selected=Math.max(0,selected-rows);else if(key.name==='pagedown')selected=Math.min(found.length-1,selected+rows);
         else if(key.name==='backspace'){query=Array.from(query).slice(0,-1).join('');selected=0;}
         else if(key.ctrl&&key.name==='u'){query='';selected=0;}else if(key.name==='f1')help=!help;
+        else if(text==='/'&&!query){selected=0;}
         else if(text&&!key.ctrl&&!key.meta&&!/[\x00-\x1f\x7f-\x9f]/.test(text)){query+=text;selected=0;}
         selected=Math.max(0,selected);draw();
       }catch{done(null,new SafeError('picker_failed'));}

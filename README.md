@@ -16,7 +16,12 @@ bun run start
 
 Type to search in the model picker, use arrow keys to browse, Enter to select
 and Escape to cancel. F1 shows model advice. Use `--no-color` or `NO_COLOR=1`
-for the plain interface.
+for the plain interface, where `/name` or `/provider` filters the numbered list.
+Search matches model names, IDs and providers, including multiple search words.
+
+After the privacy disclosure, conversation classification and sign-in use a
+`[Y/n]` prompt: Enter continues; `n` cancels. Work-only timing access still asks
+for explicit confirmation with a `[y/N]` prompt.
 
 ## Sources and output
 

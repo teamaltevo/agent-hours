@@ -107,7 +107,7 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     else {ui.note(`Model: ${model!.providerID}/${model!.id}`);ui.note('Reads conversations, including personal history. Selected sessions may include messages outside the report dates.');ui.note('Excerpts and project references may go to this provider. Secret removal is best-effort; provider retention policies apply.');ui.note('Local project matches may identify work without a model. Results are estimates.');}
     ui.note('TimeSentry opens in your browser; only your own hours are read. Nothing is changed.');
     ui.note('Reports contain totals, not conversations. Private session IDs and paths stay under local/.');
-    if(!await ui.confirm(workOnly?'Read timing history and sign in?':'Allow conversation classification and sign in?')){ui.note('Cancelled.');return 0;}
+    if(!await ui.confirm(workOnly?'Read timing history and sign in?':'Allow conversation classification and sign in?',!workOnly)){ui.note('Cancelled.');return 0;}
     abort.signal.throwIfAborted();
     const timesentry=await profile.measure('oauth_read',()=>fetchTimeSentry(since,until,{consent:true,projects:!workOnly,onBrowser:()=>ui.note('Complete Microsoft sign-in in your browser (up to 5 minutes).'),signal:abort.signal}));
     ui.note('Connected to TimeSentry.');
