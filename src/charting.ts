@@ -16,20 +16,20 @@ function calendarRows(rows,unit){
   current=d.toISOString().slice(0,unit==='month'?7:10);
  }return result;
 }
-function chart(rows,series,ratio){
- disposeCharts('activity');const visible=rows.filter(d=>series.some(s=>d.values[s.key]!=null));
+function chart(rows,series,ratio,slot='activity',unit='h'){
+ disposeCharts(slot);const visible=rows.filter(d=>series.some(s=>d.values[s.key]!=null));
  if(!visible.length)return '<p class="unavailable">'+(ratio?'Ratios unavailable.':'No measurements for this selection.')+'</p>';
  const data=calendarRows(visible,$('period').value),shown=series.filter(s=>data.some(d=>d.values[s.key]!=null)),id='activity-canvas-'+(++chartSequence),options=baseOptions();
  options.interaction={mode:'index',intersect:false};options.plugins.legend.position='top';
  options.plugins.tooltip.filter=item=>item.parsed.y!=null;
- options.plugins.tooltip.callbacks={label:item=>item.dataset.label+': '+fmt(item.parsed.y,4)+(ratio?'×':' h')};
+ options.plugins.tooltip.callbacks={label:item=>item.dataset.label+': '+fmt(item.parsed.y,4)+(ratio?'×':' '+unit)};
  options.scales.x.ticks.maxTicksLimit=7;options.scales.x.ticks.maxRotation=0;
- options.scales.y.ticks.callback=value=>fmt(value,2)+(ratio?'×':' h');
+ options.scales.y.ticks.callback=value=>fmt(value,2)+(ratio?'×':' '+unit);
  if(ratio)options.scales.y.suggestedMax=1;
  const datasets=shown.map(s=>({label:s.label,data:data.map(d=>d.values[s.key]??null),backgroundColor:paint(s.color),borderColor:paint(s.color),borderWidth:ratio?2:0,borderRadius:2,maxBarThickness:18,pointRadius:ratio?(data.length>150?2:3):0,pointHoverRadius:6,pointHitRadius:8,spanGaps:false,skipNull:true}));
  const reference={id:'ratio-reference',afterDraw(instance){if(!ratio)return;const y=instance.scales.y,pixel=y.getPixelForValue(1);if(pixel<instance.chartArea.top||pixel>instance.chartArea.bottom)return;const c=instance.ctx;c.save();c.setLineDash([5,5]);c.strokeStyle=chartTheme().dim;c.lineWidth=1;c.beginPath();c.moveTo(instance.chartArea.left,pixel);c.lineTo(instance.chartArea.right,pixel);c.stroke();c.restore();}};
- queueMicrotask(()=>{const canvas=$(id);if(!canvas)return;chartInstances.set('activity',new Chart(canvas,{type:ratio?'line':'bar',data:{labels:data.map(d=>d.date),datasets},options,plugins:[reference]}));});
- return '<div class="chart-box"><canvas id="'+id+'" role="img" aria-label="'+(ratio?'Agent activity per work hour':'Agent activity and work hours by date')+'">See Daily data for the numbers.</canvas></div>';
+ queueMicrotask(()=>{const canvas=$(id);if(!canvas)return;chartInstances.set(slot,new Chart(canvas,{type:ratio?'line':'bar',data:{labels:data.map(d=>d.date),datasets},options,plugins:[reference]}));});
+ return '<div class="chart-box"><canvas id="'+id+'" role="img" aria-label="'+(unit==='USD'?'API-equivalent cost by date':ratio?'Agent activity per work hour':'Agent activity and work hours by date')+'">See Daily data for the numbers.</canvas></div>';
 }
 function horizontalChart(id,labels,datasets,unit='h',empty='No measurements.'){
  disposeCharts(id);const target=$(id);if(!labels.length){target.innerHTML='<p class="unavailable">'+empty+'</p>';return;}

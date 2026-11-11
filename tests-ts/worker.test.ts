@@ -24,7 +24,7 @@ test('Worker requires the public phrase before parsing and cannot relay to arbit
 });
 test('Worker emails a rebuilt sanitized attachment to its fixed configured recipient',async()=>{
   const e=env();const r=await worker.fetch(request(),e.value);expect(r.status).toBe(200);expect(e.sent.length).toBe(1);expect(e.sent[0].to).toBe('recipient@example.com');
-  const zip=Uint8Array.from(atob(e.sent[0].attachments[0].content),c=>c.charCodeAt(0));const files=unzipSync(zip);expect(Object.keys(files).sort()).toEqual(['README.txt','daily.csv','report.html','report.json']);expect(strFromU8(files['report.json'])).not.toContain('PRIVATE_');
+  const zip=Uint8Array.from(atob(e.sent[0].attachments[0].content),c=>c.charCodeAt(0));const files=unzipSync(zip);expect(Object.keys(files).sort()).toEqual(['README.txt','daily.csv','project-daily.csv','report.html','report.json']);expect(strFromU8(files['report.json'])).not.toContain('PRIVATE_');
 });
 test('repeated identical submissions do not send duplicate emails',async()=>{
   const e=env();expect((await worker.fetch(request(),e.value)).status).toBe(200);expect((await worker.fetch(request(),e.value)).status).toBe(200);expect(e.sent.length).toBe(1);expect(e.rows.size).toBe(1);expect([...e.budget.values()]).toEqual([1]);

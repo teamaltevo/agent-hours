@@ -97,3 +97,13 @@ export class ProjectMatcher {
     return null;
   }
 }
+/** Exact one-project evidence only. Never split one session over every project
+ * mentioned: ambiguous/multi-project sessions belong to Unattributed. */
+export class ProjectAttributor {
+  private matchers:{key:string;title:string;matcher:ProjectMatcher}[];
+  constructor(projects:Project[]){this.matchers=projects.map(p=>({key:p.key,title:normalize(p.title),matcher:new ProjectMatcher([p])}));}
+  match(text:string,directories:(string|null)[]):string|null {
+    const parts=directories.filter((d):d is string=>Boolean(d)).flatMap(d=>{const parts=d.split(/[/\\]+/);return ['users','home'].includes(parts[1]?.toLowerCase())?parts.slice(3):parts;}).map(d=>normalize(d));
+    const found=this.matchers.filter(p=>p.matcher.match(text,directories)||(p.title.length>=3&&!p.title.split(' ').every(w=>generic.has(w))&&parts.includes(p.title)));return found.length===1?found[0].key:null;
+  }
+}

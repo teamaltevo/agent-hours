@@ -28,7 +28,7 @@ select,button{font:inherit;color:var(--text);background:var(--surface);border:1p
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0;border-block:1px solid var(--line);margin-bottom:24px;background:none;border-radius:0}
 .kpi{display:block;padding:18px 18px 18px 0;border:0;border-right:1px solid var(--line);margin-right:18px;background:none;border-radius:0}.kpi:last-child{border:0;margin:0}.value{font-size:31px;display:block;line-height:1.4}.kpi small{display:block;color:var(--dim)}
 .ratio-summary{display:flex;gap:20px;flex-wrap:wrap;font-size:14px;margin:-10px 0 20px;color:var(--dim)}
-figure{margin:0 0 32px}figcaption{margin-top:10px}.chart-scroll,.table-scroll{overflow:auto}.chart-box{position:relative;height:380px;width:100%;min-width:0}.chart-box canvas{display:block}.chart-box.compact{height:220px}#legend:empty{display:none}
+figure{margin:0 0 32px;min-width:0}figcaption{margin-top:10px}.chart-scroll,.table-scroll{overflow:auto}.chart-box{position:relative;height:380px;width:100%;min-width:0}.chart-box canvas{display:block}.chart-box.compact{height:220px}#legend:empty{display:none}
 .grid{stroke:var(--line);stroke-width:1}.reference{stroke:var(--dim);stroke-width:1;stroke-dasharray:4 4}.legend{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;font-size:14px}.key{display:inline-block;width:11px;height:11px;vertical-align:middle;margin-right:7px;background:var(--accent)}
 section{margin-top:42px;padding:0;border:0}.twocol{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:36px}.bar-row{display:grid;grid-template-columns:130px minmax(0,1fr) 90px;gap:12px;align-items:center;font-size:14px;margin:13px 0}.rail{height:10px;background:var(--line)}.fill{height:100%;background:var(--accent)}.bar-row b{text-align:right;font-weight:500}
 .stack{height:22px;display:flex;margin:12px 0}.stack span{height:100%;border-right:2px solid var(--bg)}table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid var(--line);padding:9px 10px;text-align:right;white-space:nowrap}th{font-weight:500;color:var(--dim)}th:first-child,td:first-child{text-align:left}
@@ -59,6 +59,13 @@ details summary{cursor:pointer;margin-bottom:14px}footer{border-top:1px solid va
 <figure><h2>Tokens &amp; cost</h2><div id="usage" class="table-scroll"></div><figcaption>Source-reported usage and estimated cost.</figcaption></figure>
 </div><p id="coverage" class="note"></p></section>
 <section><details><summary>Daily data</summary><div id="daily-table" class="table-scroll"></div></details></section>
+<section id="chargeback-section"><h2>Project usage &amp; API-equivalent cost</h2>
+<p class="note" id="chargeback-summary"></p>
+<div class="controls"><label><span>Customer</span><select id="customer-filter"></select></label><label><span>Project</span><select id="project-filter"></select></label></div>
+<div id="project-chart"></div><p class="note" id="project-cost-note"></p>
+<details><summary>Project totals</summary><div id="project-totals" class="table-scroll"></div></details>
+<details><summary>Project daily data</summary><div id="project-daily" class="table-scroll"></div></details>
+<p class="note">Chargeback planning only: standard published API token rates in USD, before tax, markup or FX. Not subscription spend or a verified invoice. Unpriced usage is excluded, not free. Unattributed work must be reviewed before billing a customer.</p></section>
 <footer><details><summary>About these numbers</summary>
 <p class="note">${report.daily_ratio_interpretation}</p><p class="note">${report.telemetry_interpretation??'Detailed telemetry was not collected in this report.'}</p>
 <p class="note">Summed agent-hours add each client's captured session durations. Parallel agents count separately: five agents for one developer hour gives five agent-hours (5×). Client measurement methods differ, so the total is a captured-activity proxy, not CPU runtime. The optional elapsed message-gap view removes overlap and is a different metric.</p>
@@ -66,6 +73,7 @@ details summary{cursor:pointer;margin-bottom:14px}footer{border-top:1px solid va
 <p class="note">The summed all-client ratio divides all captured agent-hours by developer hours on dates with available agent history. Agent-hours on zero-work dates remain in that total, but no daily ratio is defined for a zero-hour denominator.</p>
 <table><thead><tr><th>Client</th><th>Primary activity measure</th></tr></thead><tbody>${measures}</tbody></table>
 <p class="note">This dashboard is offline and includes its aggregate JSON. Source conversations, commands, private paths and session IDs are not included.</p>
+<p class="note">Project attribution uses one confident catalogue match per work session; ambiguous sessions remain Unattributed. Cached work/personal classifications do not retain model-selected projects, so they may remain unattributed. Work-only mode uses catalogue/directory evidence without reading conversations for attribution. Project work hours come from your own TimeSentry punches, not proportional allocation. API-equivalent prices use a pinned LiteLLM snapshot for exact OpenAI and Anthropic models, not historical rates. Other models and missing usage are not priced. Cache/reasoning counts are normalized per source; unknown cache-write TTL produces a 5-minute–1-hour range for Claude. The range is not a bound on total invoice cost: missing history, tools, regional premiums, service tiers, images/audio and negotiated rates are excluded.</p>
 </details></footer></main>
 <script type="application/json" id="report-data">${encoded}</script><script>${CHART_RUNTIME}</script><script>${DASHBOARD_SCRIPT}</script></body></html>`;
 }

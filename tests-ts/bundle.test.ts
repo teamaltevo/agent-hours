@@ -5,7 +5,7 @@ import { reportBundle } from '../src/bundle.ts';
 import { sampleReport } from './fixtures.ts';
 
 test('report bundle includes only aggregate JSON, offline HTML, CSV and instructions',()=>{
-  const result=reportBundle(sampleReport()),files=unzipSync(result.zip);expect(Object.keys(files).sort()).toEqual(['README.txt','daily.csv','report.html','report.json']);
+  const result=reportBundle(sampleReport()),files=unzipSync(result.zip);expect(Object.keys(files).sort()).toEqual(['README.txt','daily.csv','project-daily.csv','report.html','report.json']);
   for(const bytes of Object.values(files)){const text=strFromU8(bytes);for(const privateValue of ['PRIVATE_SESSION','PRIVATE_DIRECTORY','PRIVATE_CONVERSATION','PRIVATE_SOURCE','PRIVATE_TOOL_ID'])expect(text).not.toContain(privateValue);}
   expect(result.html).toContain('connect-src');expect(result.html).toContain('period_summaries');expect(result.csv).toContain('tool_recorded_ms');expect(result.json).not.toContain('profiling');
 });

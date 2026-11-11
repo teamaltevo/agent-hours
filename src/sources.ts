@@ -99,7 +99,7 @@ function textContent(content:unknown):string {
   return content.filter(b=>b&&['text','input_text','output_text'].includes(b.type)&&typeof b.text==='string').map(b=>b.text).join('\n');
 }
 export async function readTranscript(path:string,client:Client,metadataOnly=false):Promise<Session> {
-  const stem=basename(path).split(/\.jsonl/i)[0]; let identity=stem; let cwd:string|null=null; let hasResponses=false;
+  const stem=basename(path).split(/\.jsonl/i)[0]; let identity=stem; let cwd:string|null=null; let hasResponses=false;let usageModel:string|undefined;
   const response=newSession(client,identity); const event=newSession(client,identity);
   for await (const line of lines(path)) {
     if (!line.trim()) continue;
@@ -109,7 +109,8 @@ export async function readTranscript(path:string,client:Client,metadataOnly=fals
     if (client==='codex'&&rec.type==='session_meta') { if (typeof rec.payload?.id==='string') identity=rec.payload.id; if (typeof rec.payload?.cwd==='string') cwd=rec.payload.cwd; }
     if (client==='claude') { if (typeof rec.sessionId==='string') identity=rec.sessionId; if (typeof rec.cwd==='string') cwd=rec.cwd; }
     if(client==='claude')claudeTelemetry(meta(response),rec);
-    if(client==='codex')codexTelemetry(meta(response),rec);
+    if(client==='codex'&&rec.type==='turn_context')usageModel=typeof rec.payload?.model==='string'?rec.payload.model:undefined;
+    if(client==='codex')codexTelemetry(meta(response),rec,usageModel);
     let message=client==='claude'?rec.message:rec.payload;
     if (!message||typeof message!=='object') continue;
     let role=client==='claude'?rec.type:message.role; let target=response;
@@ -143,7 +144,7 @@ function readDatabase(path:string,metadataOnly=true,selected?:string):Session[] 
     const hasParts=Boolean(db.query("SELECT 1 FROM sqlite_master WHERE name='part' AND type='table'").get());
     const rows=db.query(`SELECT id,json_extract(data,'$.role') role,json_extract(data,'$.time.created') start,
       json_extract(data,'$.time.completed') end,json_extract(data,'$.path.cwd') cwd,
-      json_extract(data,'$.tokens') tokens,json_extract(data,'$.cost') cost FROM message WHERE session_id=?`);
+      json_extract(data,'$.tokens') tokens,json_extract(data,'$.cost') cost,coalesce(json_extract(data,'$.modelID'),json_extract(data,'$.model.id')) model FROM message WHERE session_id=?`);
     return (sessions as {id:string;directory:string|null}[]).map(row=>{
       const s=newSession('opencode',row.id,row.directory); s.sources=[path];
       for (const rec of rows.all(row.id) as any[]) {
@@ -164,7 +165,7 @@ function readDatabase(path:string,metadataOnly=true,selected?:string):Session[] 
         // Text is intentionally absent in database timing discovery/work-only mode.
         entry.fingerprint=hash(stable([entry.role,entry.start,entry.end,entry.cwd,metadataOnly?null:text]));
         addRecord(s,rec.id,entry);
-        if(rec.role==='assistant'){let tokens:any;try{tokens=typeof rec.tokens==='string'?strictJSON(rec.tokens):rec.tokens;}catch{}const usage=nativeUsage('message:'+rec.id,entry.start,tokens,rec.cost,'opencode');if(usage)addUsage(meta(s),usage);}
+        if(rec.role==='assistant'){let tokens:any;try{tokens=typeof rec.tokens==='string'?strictJSON(rec.tokens):rec.tokens;}catch{}const usage=nativeUsage('message:'+rec.id,entry.start,tokens,rec.cost,'opencode',rec.model);if(usage)addUsage(meta(s),usage);}
       }
       if(hasParts){
         // SQL projects only numeric timing, fixed state/name and command family

@@ -125,7 +125,7 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
       const report=publicReport(await readJSON(resolve(options.values['render-report'])));
       report.all_clients=allClientSummary(report);
       const bundle=reportBundle(report),prefix=join(directory,'reports','rebuilt-'+randomUUID());
-      await privateWrite(prefix+'.json',bundle.json);await privateWrite(prefix+'.daily.csv',bundle.csv);await privateWrite(prefix+'.html',bundle.html);await privateWrite(prefix+'.zip',bundle.zip);ui.note('Dashboard: '+prefix+'.html');ui.note('Report bundle: '+prefix+'.zip');return 0;
+      await privateWrite(prefix+'.json',bundle.json);await privateWrite(prefix+'.daily.csv',bundle.csv);if(bundle.project_csv)await privateWrite(prefix+'.project-daily.csv',bundle.project_csv);await privateWrite(prefix+'.html',bundle.html);await privateWrite(prefix+'.zip',bundle.zip);ui.note('Dashboard: '+prefix+'.html');ui.note('Report bundle: '+prefix+'.zip');return 0;
     }
     const delivery=await loadDelivery(directory,{endpoint:options.values['submit-url'],disabled:options.values['no-send'],participant:options.values.participant});
     if(options.values['send-report']){
@@ -150,23 +150,24 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     if(workOnly)ui.note('Reads timing, tool and usage records locally. No conversations or command text are sent to a model.');
     else {ui.note(`Model: ${model!.providerID}/${model!.id}`);ui.note('Reads conversations, including personal history. Selected sessions may include messages outside the report dates.');ui.note('Excerpts and project references may go to this provider. Secret removal is best-effort; provider retention policies apply.');ui.note('Local project matches may identify work without a model. Results are estimates.');}
     ui.note('TimeSentry opens in your browser; only your own hours are read. Nothing is changed.');
-    ui.note('Reports include your TimeSentry display name when available and aggregate totals, not conversations or account IDs. Private session IDs and paths stay under local/.');
+    ui.note('Reports include your display name, project/customer names, daily project totals and API-equivalent usage cost. Conversations, account IDs, session IDs and paths are excluded.');
     if(delivery)ui.note('After completion, aggregate JSON is automatically uploaded to '+delivery.endpoint+' for email delivery. Commands, conversations and private indexes are not uploaded.');
     const confirmation=delivery?(workOnly?'Read timing history, sign in and email the aggregate report?':'Classify history, sign in and email the aggregate report?'):(workOnly?'Read timing history and sign in?':'Allow conversation classification and sign in?');
     if(!await ui.confirm(confirmation,!workOnly)){ui.note('Cancelled.');return 0;}
     abort.signal.throwIfAborted();
-    const timesentry=await profile.measure('oauth_read',()=>fetchTimeSentry(since,until,{consent:true,projects:!workOnly,onBrowser:()=>ui.note('Complete Microsoft sign-in in your browser (up to 5 minutes).'),signal:abort.signal}));
+    const timesentry=await profile.measure('oauth_read',()=>fetchTimeSentry(since,until,{consent:true,projects:true,onBrowser:()=>ui.note('Complete Microsoft sign-in in your browser (up to 5 minutes).'),signal:abort.signal}));
     ui.note('Connected to TimeSentry.');
     if(timesentry.person)ui.note('Report for '+timesentry.person.name+'.');
     const alias=options.values['project-aliases']??join(directory,'local/project-aliases.json');
-    if(!workOnly&&(options.values['project-aliases']||existsSync(alias)))timesentry.projects=applyAliases(timesentry.projects,await readJSON(alias));
+    if(options.values['project-aliases']||existsSync(alias))timesentry.projects=applyAliases(timesentry.projects,await readJSON(alias));
     ui.title(workOnly?'Reading timing history':'Reviewing sessions');ui.note('Finding sessions in the selected period…');
     const inventory=await profile.measure('metadata_discovery',()=>discover(sources,since,until,abort.signal));let completed=0;
     const classifier=workOnly?undefined:new Classifier({projects:timesentry.projects,transport:transport!,model:model!,cache:join(directory,'local/classifier-cache-ts-v1'),maxCalls:options.maxCalls,requestMs:options.requestMs,sessionMs:options.sessionMs,keywords:!options.values['no-keywords'],signal:abort.signal,profile,onRequest:active=>ui.progress(completed,inventory.candidates.length,active)});
-    builder=new ReportBuilder({since,until,...inventory,hours:timesentry.hours,person:timesentry.person,workOnly,classifier,workers:options.workers,batchSize:options.batchSize,directory,signal:abort.signal,profile,onProgress:(done,total)=>{completed=done;ui.progress(done,total,classifier?.active??0);}});
+    builder=new ReportBuilder({since,until,...inventory,hours:timesentry.hours,person:timesentry.person,projects:timesentry.projects,projectWorkDays:timesentry.projectWorkDays,workOnly,classifier,workers:options.workers,batchSize:options.batchSize,directory,signal:abort.signal,profile,onProgress:(done,total)=>{completed=done;ui.progress(done,total,classifier?.active??0);}});
     if(ui.color)ticker=setInterval(()=>ui.progress(completed,inventory.candidates.length,classifier?.active??0),1000);
     const report=await builder.run();if(ticker)clearInterval(ticker);ui.summary(report,builder.path);
     const bundle=reportBundle(report),htmlPath=builder.path.replace(/\.json$/,'.html'),zipPath=builder.path.replace(/\.json$/,'.zip');
+    if(bundle.project_csv)await privateWrite(builder.path.replace(/\.json$/,'.project-daily.csv'),bundle.project_csv);
     await privateWrite(htmlPath,bundle.html);await privateWrite(zipPath,bundle.zip);ui.note('Dashboard: '+htmlPath);ui.note('Shareable bundle: '+zipPath);
     let exit=0;
     if(delivery){const recorder=deliveryRecorder(builder.path);try{ui.note('Sending report…');await sendReport(report,delivery,abort.signal,fetch,{onDiagnostic:recorder.onDiagnostic});await recorder.save('accepted').catch(()=>{});ui.note('Email accepted by the delivery service.');}catch(error){const code=error instanceof SafeError?error.code:'delivery_failed';await recorder.save('failed',code).catch(()=>{});ui.note('Delivery diagnostics: '+recorder.path);if(abort.signal.aborted)throw new SafeError('cancelled');ui.note(errors[code]??errors.delivery_failed);exit=3;}}

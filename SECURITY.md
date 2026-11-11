@@ -53,6 +53,16 @@ name is absent. This is an explicitly allowed personal-data field; raw email
 addresses, employee IDs and the rest of the profile remain excluded. The name
 and its source are self-reported to the public Worker, not proof of identity.
 
+Project-level reports explicitly include catalogue project/customer display
+names, daily project aggregates and API-equivalent token-cost estimates. The
+consent screen discloses these fields before collection/submission. Raw project
+IDs, aliases, Jira links, unknown model strings and filesystem-derived names are
+not exported. Public pricing model IDs come only from the vendored tariff
+allowlist. Labels are validated and HTML-escaped; project CSV labels are quoted
+and spreadsheet-formula prefixes are neutralized. These estimates are unverified
+chargeback-planning data, not signed billing records. Project names and costs
+must not be written into transport diagnostics or Worker logs.
+
 TimeSentry OAuth tokens remain in memory and are not forwarded to the report
 Worker. The earlier report-upload token is obsolete; it must not be published
 or confused with the deliberately public phrase.

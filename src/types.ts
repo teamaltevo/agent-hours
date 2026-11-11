@@ -16,12 +16,13 @@ export interface Session {
   sources:string[]; reasons:Set<string>; incomplete:boolean; conflict:boolean; retained:number;
   label?:Label; reason?:string; method?:'model'|'keyword'|'declared';
   telemetry?:Telemetry;
+  project?:string|null;
 }
 export const toolCategories=['shell','file_read','file_write','search','web','browser','agent','other'] as const;
 export type ToolCategory=typeof toolCategories[number];
 export type ToolStatus='success'|'failure'|'unknown';
 export interface ToolEvent { id:string; category:ToolCategory; command_family:string|null; start:number|null; end:number|null; duration_ms:number|null; timing:'recorded_interval'|'recorded_duration'|'round_trip'|'unavailable'; status:ToolStatus; conflict?:boolean }
-export interface UsageEvent { id:string; at:number|null; input:number|null; output:number|null; cache_read:number|null; cache_write:number|null; reasoning:number|null; cost_usd:number|null }
+export interface UsageEvent { id:string; at:number|null; input:number|null; output:number|null; cache_read:number|null; cache_write:number|null; reasoning:number|null; cost_usd:number|null; model?:string|null; format?:'claude'|'opencode'|'codex'; cache_write_1h?:number|null; invalid_usage?:boolean }
 export interface DurationEvent { id:string; at:number|null; duration_ms:number }
 export interface Telemetry { tools:Map<string,ToolEvent>; usage:Map<string,UsageEvent>; turns:Map<string,DurationEvent>; recorded_spans:Map<string,Span>; rejected:Set<string>; issues:number }
 export interface Distribution { count:number; total_ms:number; min_ms:number|null; median_ms:number|null; p95_ms:number|null; max_ms:number|null; frequencies_ms:[number,number][] }
@@ -68,7 +69,12 @@ export interface Report {
   period_summaries?:{week:PeriodSummary[];month:PeriodSummary[]};
   combined?:{metric:'cross_client_message_gap_union_ms';aggregate:Aggregate;details:DailyDetails;period_summaries:{week:CombinedPeriod[];month:CombinedPeriod[]}};
   all_clients?:Aggregate;
+  chargeback?:Chargeback;
 }
+export interface CostCoverage {estimated_api_cost_usd:number|null;estimated_api_cost_upper_usd:number|null;priced_samples:number;unpriced_samples:number;input_tokens:number;output_tokens:number;cache_read_tokens:number;cache_write_tokens:number;reasoning_tokens:number}
+export interface ProjectDay extends CostCoverage {date:string;project:string;client:Client;model:string|null;agent_hours:number;sessions:number;tool_calls:number;tool_failures:number}
+export interface ProjectWorkDay {date:string;project:string;developer_hours:number}
+export interface Chargeback {schema_version:1;pricing_snapshot:string;basis:'published_api_equivalent_usd';projects:{key:string;title:string;client:string}[];days:ProjectDay[];work_days:ProjectWorkDay[];total:CostCoverage;undated_usage_samples:number;sessions_without_usage:number}
 export interface PeriodSummary { period:string; client:Client; developer_hours:number|null; captured_work_hours:number|null; paired_days:number; paired_activity_hours:number|null; paired_developer_hours:number|null; ratio:number|null; days_with_activity_and_zero_work:number; details:DailyDetails }
 export interface CombinedDay {history_observed:boolean;captured_work_hours:number|null;ratio:number|null;ratio_status:string;details:DailyDetails}
 export type CombinedPeriod=Omit<PeriodSummary,'client'>;

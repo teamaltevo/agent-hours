@@ -27,6 +27,9 @@ test('valid decision caches enum only and avoids another request',async()=>{
   expect(await c.classify(session('PRIVATE_EVIDENCE'))).toBe('work');expect(await c.classify(session('PRIVATE_EVIDENCE'))).toBe('work');expect(calls).toBe(1);
   for(const path of await readdir(root)){const text=await readFile(join(root,path),'utf8');expect(JSON.parse(text)).toEqual({label:'work'});expect(text).not.toContain('PRIVATE_EVIDENCE');}
 });
+test('fresh model project attribution is retained in memory but never added to caches',async()=>{
+  const c=classifier(async()=>JSON.stringify(decision())),s=session('PRIVATE_PROJECT_EVIDENCE');expect(await c.classify(s)).toBe('work');expect(s.project).toBe('p0000');const cached=session('PRIVATE_PROJECT_EVIDENCE');expect(await c.classify(cached)).toBe('work');expect(cached.project??null).toBeNull();for(const path of await readdir(root))expect(JSON.parse(await readFile(join(root,path),'utf8'))).toEqual({label:'work'});
+});
 test('low confidence is unknown',async()=>expect(await classifier(async()=>JSON.stringify(decision('work','p0000',.8))).classify(session())).toBe('unknown'));
 test('transport failures are not cached and circuit opens at three',async()=>{
   let calls=0;const c=classifier(async()=>{calls++;throw new Error('PROVIDER_SECRET_BODY');});

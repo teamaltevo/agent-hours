@@ -1,6 +1,6 @@
 {
   "name": "agent-hours-local-classifier",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Private local AI activity reports with TimeSentry",
   "private": true,
   "type": "module",
@@ -16,6 +16,7 @@
     "test": "bun test tests-ts",
     "typecheck": "tsc --noEmit",
     "vendor:charts": "bun scripts/update-chart-runtime.ts",
+    "vendor:pricing": "bun scripts/update-pricing.ts",
     "worker:check": "bun run --bun wrangler deploy --dry-run --config worker/wrangler.example.jsonc",
     "worker:deploy": "bun run --bun wrangler deploy --config worker/wrangler.jsonc"
   },

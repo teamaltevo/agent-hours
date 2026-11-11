@@ -51,6 +51,10 @@ export function addUsage(t:Telemetry,event:UsageEvent):void {
     const next=event[key];if(next!==null)prior[key]=Math.max(prior[key]??0,next);
   }
   if(prior.at===null)prior.at=event.at;
+  if(event.model){if(prior.model&&prior.model!==event.model){prior.model=null;prior.format=undefined;t.issues++;}else if(prior.model!==null)prior.model=event.model;}
+  if(prior.format===undefined&&prior.model!==null)prior.format=event.format;
+  if(event.cache_write_1h!=null)prior.cache_write_1h=Math.max(prior.cache_write_1h??0,event.cache_write_1h);
+  if(event.invalid_usage)prior.invalid_usage=true;
 }
 export function mergeTelemetry(a:Telemetry,b:Telemetry):void {
   b.tools.forEach(e=>addTool(a,{...e}));b.usage.forEach(e=>addUsage(a,{...e}));
@@ -59,10 +63,15 @@ export function mergeTelemetry(a:Telemetry,b:Telemetry):void {
   for(const [key,span]of b.recorded_spans){if(a.rejected.has('span:'+key)){a.recorded_spans.delete(key);continue;}const prior=a.recorded_spans.get(key);if(prior&&stable(prior)!==stable(span)){a.recorded_spans.delete(key);a.rejected.add('span:'+key);a.issues++;}else a.recorded_spans.set(key,span);}
   a.issues+=b.issues;
 }
-export function nativeUsage(id:string,at:number|null,value:any,cost:unknown=null,format:'claude'|'opencode'|'codex'='claude'):UsageEvent|null {
+export function nativeUsage(id:string,at:number|null,value:any,cost:unknown=null,format:'claude'|'opencode'|'codex'='claude',model:unknown=undefined):UsageEvent|null {
   if(!value||typeof value!=='object')value={};
   const event:UsageEvent={id,at,input:integer(format==='opencode'?value.input:value.input_tokens),output:integer(format==='opencode'?value.output:value.output_tokens),cache_read:integer(format==='opencode'?value.cache?.read:format==='codex'?value.cached_input_tokens:value.cache_read_input_tokens),cache_write:integer(format==='opencode'?value.cache?.write:value.cache_creation_input_tokens),reasoning:integer(format==='opencode'?value.reasoning:value.reasoning_output_tokens),cost_usd:finite(cost)?cost:null};
-  return Object.entries(event).some(([key,v])=>!['id','at'].includes(key)&&v!==null)?event:null;
+  const available=Object.entries(event).some(([key,v])=>!['id','at'].includes(key)&&v!==null);
+  if(available){event.format=format;if(typeof model==='string'&&model.length<=200)event.model=model;if(format==='claude')event.cache_write_1h=integer(value.cache_creation?.ephemeral_1h_input_tokens);
+    const raw=format==='opencode'?[value.input,value.output,value.reasoning,value.cache?.read,value.cache?.write]:[value.input_tokens,value.output_tokens,format==='codex'?value.cached_input_tokens:value.cache_read_input_tokens,value.cache_creation_input_tokens,value.reasoning_output_tokens,value.cache_creation?.ephemeral_1h_input_tokens];
+    if(raw.some(v=>v!=null&&integer(v)===null))event.invalid_usage=true;
+  }
+  return available?event:null;
 }
 export function claudeTelemetry(t:Telemetry,rec:any):void {
   const at=timestamp(rec.timestamp);
@@ -71,7 +80,7 @@ export function claudeTelemetry(t:Telemetry,rec:any):void {
   }
   const message=rec.message;if(!message||typeof message!=='object')return;
   if(rec.type==='assistant'){
-    const u=nativeUsage('message:'+(message.id??rec.uuid??at),at,message.usage);if(u)addUsage(t,u);
+    const u=nativeUsage('message:'+(message.id??rec.uuid??at),at,message.usage,null,'claude',message.model);if(u)addUsage(t,u);
   }
   const blocks=Array.isArray(message.content)?message.content:[];
   for(const b of blocks){
@@ -92,7 +101,7 @@ export function claudeTelemetry(t:Telemetry,rec:any):void {
     }
   }
 }
-export function codexTelemetry(t:Telemetry,rec:any):void {
+export function codexTelemetry(t:Telemetry,rec:any,model?:string):void {
   const p=rec.payload;if(!p||typeof p!=='object')return;const at=timestamp(rec.timestamp);
   if(rec.type==='response_item'&&['function_call','custom_tool_call'].includes(p.type)&&typeof p.call_id==='string'){
     let args:any;try{args=typeof p.arguments==='string'&&p.arguments.length<100000?JSON.parse(p.arguments):p.arguments;}catch{}
@@ -109,7 +118,7 @@ export function codexTelemetry(t:Telemetry,rec:any):void {
     // attributed, keyed by the cumulative snapshot so repeats/mirrors dedupe.
     // Never assign the entire historical cumulative total to this event's day.
     const total=nativeUsage('total',null,p.info.total_token_usage,null,'codex');
-    if(total){const key='token-snapshot:'+stable({...total,id:null,at:null});const event=nativeUsage(key,at,p.info.last_token_usage,null,'codex');if(event)addUsage(t,event);}
+    if(total){const key='token-snapshot:'+stable({...total,id:null,at:null});const event=nativeUsage(key,at,p.info.last_token_usage,null,'codex',model);if(event)addUsage(t,event);}
   }
 }
 export function distribution(values:number[]):Distribution {

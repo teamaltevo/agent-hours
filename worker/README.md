@@ -41,6 +41,12 @@ New CLI failures save a separate `*.delivery-*.json` diagnostic file alongside t
 report, including the request UUID needed to correlate the Worker logs. These
 diagnostic files are not uploaded automatically.
 
+Project/customer names, per-project daily aggregates and API-equivalent cost are
+allowed report fields, but never log fields. The Worker validates their schema
+and rebuilds `project-daily.csv` itself, alongside the regular reports. Pricing
+data is vendored: Worker rendering never requests third-party rates. Updating the
+CLI report schema or pricing allowlist requires deploying the matching Worker.
+
 The same sanitized stages are checkpointed in D1's `delivery_events` table so a
 platform interruption does not erase the last completed preparation step. Incoming
 report requests prune events older than seven days. Search by a diagnostic request

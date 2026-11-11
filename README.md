@@ -51,7 +51,8 @@ settings are reused. Otherwise data is stored in `$XDG_DATA_HOME/agent-hours`
 or `~/.local/share/agent-hours`. Override with `--data-dir PATH`.
 
 - `reports/`: aggregate JSON reports and daily CSVs, without conversations,
-  session IDs, source paths or project names. Every completed run also creates
+  session IDs or source paths. New reports include TimeSentry project/customer
+  names and project-level daily aggregates. Every completed run also creates
   an offline HTML dashboard and a shareable ZIP containing its sanitized JSON,
   HTML, CSV and interpretation notes.
 - `local/`: private settings, enum-only classification caches and session indexes.
@@ -101,6 +102,63 @@ repeat the day's TimeSentry hours for comparison; adding those denominators
 across clients would count the same developer time multiple times.
 New JSON exports also include the lightweight `all_clients` summary, separately
 from the optional `combined` message-gap elapsed estimate.
+
+### Project/day chargeback estimates
+
+New reports include **Project usage & API-equivalent cost**, filterable by
+customer, project and AI client. The ZIP also contains `project-daily.csv`: one
+row per Montréal date/project across all AI clients, with captured agent-hours,
+project work hours, tokens, priced/unpriced usage counts and estimated USD.
+Parallel agents are additive; project work hours are counted once. Project
+totals use all returned project work hours, unlike the main matched-history
+ratio. Work-only dates without agent observations are not priced as zero usage.
+The JSON retains per-client/model cost rows for auditing; session durations are
+kept on separate rows so switching models never repeats agent-hours.
+
+Only work-classified sessions enter these estimates. A model-selected project
+or exactly one catalogue/alias/directory match can attribute a session; ambiguous
+sessions remain **Unattributed**, never split across several customers. Work-only
+mode does not use conversation text for attribution. Cached classification
+decisions retain labels only, not model-selected projects; local evidence can
+still attribute them, otherwise they remain Unattributed. TimeSentry still uses
+the same read-only calls: `current_employee`, `list_punches`, `list_projects`.
+Only your own punches supply project developer hours. Raw project IDs, Jira
+links, directories and conversations are not exported.
+
+**Cost basis:** what the recorded tokens would cost at **standard original-vendor
+API rates**, not your subscription spend, the reseller's rate or an amount
+automatically approved for billing. The calculator uses a pinned, licensed
+[LiteLLM price snapshot](src/vendor/api-pricing.json), the principal source also
+used by [Tokscale](https://github.com/junhoyeo/tokscale#pricing). It needs no
+pricing network calls or native Tokscale/Python dependency at runtime.
+
+- Exact OpenAI/Anthropic model IDs only (including known dated IDs). No fuzzy
+  model substitutions, invented model rates or subscription-zero fallback.
+- Codex cached input is a subset of input; reasoning is already in output.
+  OpenCode's normalized input excludes cache and reasoning is separate from
+  output. Claude's input excludes cache and output includes reasoning.
+- Rates are applied **per request**, including published long-context tiers;
+  daily token totals must not be repriced as a single giant request.
+- Known Claude 5-minute/1-hour cache-write buckets are priced separately.
+  Unknown write TTL yields a range. This is a cache-duration range for the
+  priced subset, **not** a bound on a complete invoice.
+- Other models, missing counts/rates and unknown model identities remain
+  unpriced. Missing and undated usage are disclosed; no tokens are estimated
+  from conversation text or agent-hours. Recorded native cost remains separate.
+- The snapshot is a current price list, **not historical 2023–today tariffs**.
+  Retired models missing from the list remain unpriced. Taxes, exchange rates,
+  markup, negotiated discounts, batch/fast tiers, regional premiums and separate
+  search/tool/storage/image/audio charges are excluded.
+
+For client billing, review attribution and coverage, agree the rate basis with
+the client, and reconcile with provider usage exports/invoices where available.
+These local histories are not a billing ledger or proof of complete usage.
+Older aggregate reports lack model/project provenance; rebuilding their HTML
+cannot recover it. A fresh local collection is required (use `--no-send`).
+
+Maintainers can refresh pricing with `bun run vendor:pricing`; review the diff,
+run tests and update CLI/Worker together. The snapshot records the upstream
+commit, file hash and retrieval date; saved reports record its commit hash.
 
 ### Detailed measurements
 

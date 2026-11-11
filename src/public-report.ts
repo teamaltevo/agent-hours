@@ -3,6 +3,9 @@ import { clients,labels,metrics,toolCategories,reasonCodes,type Report,type Clie
 import { applyTimeSentryHours } from './ratio-policy.ts';
 import { displayName } from './person.ts';
 import { allClientActivity,allClientSummary } from './all-clients.ts';
+import { projectLabel } from './chargeback-export.ts';
+import { sumCosts,pricedModel } from './pricing.ts';
+import type { Chargeback,CostCoverage } from './types.ts';
 declare const publicReportBrand:unique symbol;
 export type PublicReport=Report&{readonly [publicReportBrand]:true};
 
@@ -41,7 +44,7 @@ function combinedPeriod(value:any,unit:'week'|'month'):NonNullable<Report['combi
 /** Reconstruct, don't forward. Unknown/raw fields are rejected and explanatory
  * prose is generated locally so it cannot smuggle transcript data into email. */
 export function publicReport(input:any):PublicReport {
-  object(input,['schema_version','implementation','since','until','timezone','current_day_in_progress','work_ownership_source','timesentry_coverage','timesentry_retrieval','daily_ratio_policy','daily_ratio_interpretation','primary_ratio_client','classification_counts','classifier_counts','unknown_reason_counts','clients','days','observed_day_aggregates','default_aggregate','processed_sessions','pending_sessions','processed_session_count','pending_session_count','run_status','profiling','telemetry_schema_version','telemetry_interpretation','period_summaries','combined','person','all_clients']);
+  object(input,['schema_version','implementation','since','until','timezone','current_day_in_progress','work_ownership_source','timesentry_coverage','timesentry_retrieval','daily_ratio_policy','daily_ratio_interpretation','primary_ratio_client','classification_counts','classifier_counts','unknown_reason_counts','clients','days','observed_day_aggregates','default_aggregate','processed_sessions','pending_sessions','processed_session_count','pending_session_count','run_status','profiling','telemetry_schema_version','telemetry_interpretation','period_summaries','combined','person','all_clients','chargeback']);
   if(input.schema_version!==5||input.implementation!=='bun-typescript-v1'||input.timezone!=='America/Toronto'||typeof input.current_day_in_progress!=='boolean')return fail();
   const retrieval=object(input.timesentry_retrieval,['status','scope_completeness']);if(retrieval.status!=='self_only_read_completed')return fail();
   const since=iso(input.since),until=iso(input.until);if(since>until||Date.parse(until)-Date.parse(since)>3660*86400000)return fail();
@@ -68,7 +71,24 @@ export function publicReport(input:any):PublicReport {
   // Runtime profiling is useful locally but is intentionally not uploaded.
   applyTimeSentryHours(report);
   if(input.all_clients!==undefined){const a=object(input.all_clients,['metric','paired_days','captured_activity_hours','developer_hours','ratio']);if(a.metric!=='summed_native_client_activity_ms')return fail();report.all_clients=allClientSummary(report);}
+  if(input.chargeback!==undefined)report.chargeback=parseChargeback(input.chargeback,report);
   return report as PublicReport;
+}
+const costKeys=['estimated_api_cost_usd','estimated_api_cost_upper_usd','priced_samples','unpriced_samples','input_tokens','output_tokens','cache_read_tokens','cache_write_tokens','reasoning_tokens'] as const;
+function cost(value:any):CostCoverage {
+  const result=Object.fromEntries(costKeys.map(k=>[k,num(value[k],k.startsWith('estimated_'))])) as unknown as CostCoverage;
+  for(const k of costKeys)if(!k.startsWith('estimated_')&&!Number.isSafeInteger(result[k]))return fail();
+  if((result.estimated_api_cost_usd===null)!==(result.estimated_api_cost_upper_usd===null)||(result.estimated_api_cost_upper_usd??0)<(result.estimated_api_cost_usd??0))return fail();
+  if((result.priced_samples===0)!==(result.estimated_api_cost_usd===null))return fail();return result;
+}
+function parseChargeback(value:any,report:Report):Chargeback {
+  object(value,['schema_version','pricing_snapshot','basis','projects','days','work_days','total','undated_usage_samples','sessions_without_usage']);
+  if(value.schema_version!==1||value.basis!=='published_api_equivalent_usd'||typeof value.pricing_snapshot!=='string'||!/^[a-f0-9]{40}$/.test(value.pricing_snapshot)||!Array.isArray(value.projects)||value.projects.length>5000||!Array.isArray(value.days)||value.days.length>100000||!Array.isArray(value.work_days)||value.work_days.length>100000)return fail();
+  const keys=new Set<string>(['unattributed']);const projects=value.projects.map((p:any)=>{object(p,['key','title','client']);const title=projectLabel(p.title),client=projectLabel(p.client);if(typeof p.key!=='string'||!/^p\d{4,6}$/.test(p.key)||keys.has(p.key)||!title||!client)return fail();keys.add(p.key);return {key:p.key,title,client};});
+  const seen=new Set<string>();const days=value.days.map((d:any)=>{object(d,['date','project','client','model','agent_hours','sessions','tool_calls','tool_failures',...costKeys]);const date=iso(d.date),key=JSON.stringify([date,d.project,d.client,d.model]);if(date<report.since||date>report.until||!keys.has(d.project)||seen.has(key)||d.model!==null&&pricedModel(d.model)!==d.model)return fail();seen.add(key);return {date,project:d.project,client:choose(d.client,Object.keys(report.clients)),model:d.model,agent_hours:num(d.agent_hours)!,sessions:num(d.sessions)!,tool_calls:num(d.tool_calls)!,tool_failures:num(d.tool_failures)!,...cost(d)};});
+  const workKeys=new Set<string>();const work_days=value.work_days.map((d:any)=>{object(d,['date','project','developer_hours']);const date=iso(d.date),key=date+':'+d.project;if(date<report.since||date>report.until||!keys.has(d.project)||workKeys.has(key))return fail();workKeys.add(key);return {date,project:d.project,developer_hours:num(d.developer_hours)!};});
+  object(value.total,costKeys);cost(value.total);
+  return {schema_version:1,pricing_snapshot:value.pricing_snapshot,basis:'published_api_equivalent_usd',projects,days,work_days,total:sumCosts(days),undated_usage_samples:num(value.undated_usage_samples)!,sessions_without_usage:num(value.sessions_without_usage)!} as Chargeback;
 }
 export function dailyCSV(report:Report):string {
   const header=['date','timezone','client','metric','history_observed','captured_work_hours','developer_hours','ratio','ratio_status','day_status','elapsed_activity_hours','peak_concurrency','recorded_turn_hours','recorded_span_hours','message_gap_hours','tool_calls','tool_failures','tool_missing_duration','tool_recorded_ms','tool_round_trip_ms','tool_median_recorded_ms','tool_p95_recorded_ms','input_tokens','output_tokens','cache_read_tokens','cache_write_tokens','reasoning_tokens','reported_estimated_cost_usd','work_sessions','personal_sessions','mixed_sessions','unknown_sessions','keyword_work_sessions','model_work_sessions','declared_work_sessions',...toolCategories.flatMap(c=>[c+'_calls',c+'_recorded_ms',c+'_round_trip_ms'])];

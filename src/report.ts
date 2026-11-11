@@ -9,6 +9,8 @@ import type { RunProfile } from './profile.ts';
 import { DetailBuilder } from './details.ts';
 import { dailyCSV } from './public-report.ts';
 import { allClientSummary } from './all-clients.ts';
+import { ChargebackBuilder } from './chargeback.ts';
+import type { Project,ProjectWorkDay } from './types.ts';
 export { dailyCSV } from './public-report.ts';
 
 export interface BuildOptions {
@@ -18,17 +20,20 @@ export interface BuildOptions {
   onProgress:(done:number,total:number)=>void;
   profile?:RunProfile;
   person?:ReportPerson;
+  projects?:Project[];projectWorkDays?:ProjectWorkDay[];
 }
 export class ReportBuilder {
   report:Report;dayBounds:ReturnType<typeof boundaries>;path:string;indexPath:string;done=0;
   private writeQueue=Promise.resolve();
   private details:DetailBuilder;
+  private chargeback:ChargebackBuilder;
   private lastSavedDone=0;private lastSavedAt=performance.now();
   constructor(public options:BuildOptions) {
     const active=Object.keys(options.statuses) as Client[];
     if (!active.length) throw new SafeError('no_clients');
     this.dayBounds=boundaries(options.since,options.until);
     this.details=new DetailBuilder(this.dayBounds);
+    this.chargeback=new ChargebackBuilder(this.dayBounds,options.projects??options.classifier?.options.projects??[],options.projectWorkDays);
     const id=randomUUID();
     this.path=join(options.directory,'reports',`native-interactive-${options.since}--${options.until}-${id}.json`);
     this.indexPath=join(options.directory,'local',`session-index-ts-${id}.jsonl`);
@@ -45,6 +50,7 @@ export class ReportBuilder {
     this.details.add(session,label,candidate.history);
     if (label==='unknown') {const reason=session.reason??'reason_unavailable';r.unknown_reason_counts[reason]=(r.unknown_reason_counts[reason]??0)+1;}
     if (label==='work') {
+      this.chargeback.add(session,candidate.history,this.options.workOnly);
       const intervals=spans(session);
       if (intervals.length) {
         let total=0;
@@ -77,6 +83,7 @@ export class ReportBuilder {
     this.report.classifier_counts=this.options.classifier?.counts()??{model_calls:0,cache_hits:0,failed_calls:0};
     this.details.apply(this.report);
     this.report.all_clients=allClientSummary(this.report);
+    this.report.chargeback=this.chargeback.build();
   }
   async save(initial=false):Promise<void> {
     this.lastSavedDone=this.done;this.lastSavedAt=performance.now();

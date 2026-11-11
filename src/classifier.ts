@@ -153,6 +153,7 @@ export class Classifier {
   }
   accepted(decision:Decision,s:Session):Label {
     const label=decision.confidence>=.9?decision.label:'unknown';
+    s.project=label==='work'?decision.project:null;
     s.reason=decision.confidence<.9?'model_low_confidence':{work:'model_project_match',personal:'model_personal',mixed:'model_mixed',unknown:'model_unknown'}[label];
     return label;
   }
@@ -164,13 +165,13 @@ export class Classifier {
     const started=performance.now();const text=redact(transcript(s));
     const chunks=text.match(/[\s\S]{1,12000}/gu)??[];
     if (chunks.length>24) {s.reason='evidence_chunk_limit';return 'unknown';}
-    const found=new Set<Label>();
+    const found=new Set<Label>(),projects=new Set<string>();let missingProject=false;
     for (const chunk of chunks) {
       this.options.signal.throwIfAborted();
       const data={projects:this.options.projects,session:{...this.context(s) as object,text:chunk},chunk_count:chunks.length};
       const key='chunk-'+hash(stable({instructions,data,model:this.options.model,threshold:.9}));
       let label=await this.readCache(key);
-      if (label) {this.chunkHits++;s.reason=label==='unknown'?'cached_unknown_reason_unavailable':'cached_classification';}
+      if (label) {this.chunkHits++;s.reason=label==='unknown'?'cached_unknown_reason_unavailable':'cached_classification';if(label==='work')missingProject=true;}
       else {
         const remaining=this.options.sessionMs-(performance.now()-started);
         if (remaining<=0) {s.reason='session_time_limit';return 'unknown';}
@@ -179,10 +180,12 @@ export class Classifier {
         this.consecutive=0;this.successful++;await this.saveCache(key,label);
       }
       found.add(label);
+      if(label==='work'&&s.project)projects.add(s.project);
       if (label==='unknown'||label==='mixed'||found.has('work')&&found.has('personal')) break;
     }
     const label:Label=found.has('mixed')||found.has('work')&&found.has('personal')?'mixed':found.has('unknown')||!found.size?'unknown':[...found][0];
     if (label==='mixed') s.reason='model_mixed';
+    s.project=label==='work'&&projects.size>1?'unattributed':label==='work'&&!missingProject&&projects.size===1?[...projects][0]:null;
     await this.saveSession(s,label);return label;
   }
   async classifyBatch(sessions:Session[]):Promise<Label[]> {

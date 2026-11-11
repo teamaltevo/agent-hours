@@ -6,7 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { boundaries, localDate, SafeError, stable, strictJSON } from './core.ts';
 import { projectContext } from './projects.ts';
-import type { Project,ReportPerson } from './types.ts';
+import type { Project,ReportPerson,ProjectWorkDay } from './types.ts';
 import { personFromProfile } from './person.ts';
 
 export const SERVER='https://api.timesentry.app/mcp';
@@ -38,7 +38,7 @@ export function normalizePunches(employeeResult:any,punchesResult:any,since:stri
     let hours:Decimal; try { hours=new Decimal(p.hours); } catch { throw new SafeError('invalid_punch_hours'); }
     if (!hours.isFinite()||hours.isNegative()||typeof p.workDate!=='string') throw new SafeError('invalid_punch_hours');
     const day=localDate(p.workDate); if (day<since||day>until) throw new SafeError('punch_outside_period');
-    const fingerprint=stable([employee,day,hours.toString()]);
+    const fingerprint=stable([employee,day,hours.toString(),p.projectId??null]);
     if (seen.has(p.id)) { if (seen.get(p.id)!==fingerprint) throw new SafeError('conflicting_punch'); continue; }
     seen.set(p.id,fingerprint); days.set(day,(days.get(day)??new Decimal(0)).plus(hours));
   }
@@ -86,7 +86,13 @@ export async function openBrowser(url:string):Promise<void> {
   const child=Bun.spawn(command,{stdout:'ignore',stderr:'ignore'});
   if (await child.exited!==0) throw new SafeError('browser_open_failed');
 }
-export interface TimeSentryResult { hours:Map<string,number>; projects:Project[];person?:ReportPerson }
+export function projectWorkDays(employee:any,punchesResult:any,groups:any,since:string,until:string):ProjectWorkDay[]{
+  normalizePunches(employee,punchesResult,since,until);
+  const punches=unwrap(punchesResult,true),projects=projectContext(groups,punches),ids=[...new Set<string>(groups.flatMap((g:any)=>g.projects.map((p:any)=>p.id)))].sort((a,b)=>a.localeCompare(b));
+  const grouped=new Map<string,any[]>();for(const p of punches){const index=ids.indexOf(p.projectId),key=index>=0?projects[index].key:'unattributed';const list=grouped.get(key)??[];list.push(p);grouped.set(key,list);}
+  return [...grouped].flatMap(([project,list])=>[...normalizePunches(employee,{structuredContent:list},since,until)].map(([date,developer_hours])=>({date,project,developer_hours})));
+}
+export interface TimeSentryResult { hours:Map<string,number>; projects:Project[];person?:ReportPerson;projectWorkDays?:ProjectWorkDay[] }
 export async function fetchTimeSentry(since:string,until:string,options:{ consent:boolean; projects:boolean; onBrowser:()=>void; signal:AbortSignal; dependencies?:{ fetch?:Fetch; openBrowser?:(url:string)=>Promise<void> } }):Promise<TimeSentryResult> {
   if (options.consent!==true) throw new SafeError('login_opt_in_required');
   boundaries(since,until); options.signal.throwIfAborted();
@@ -138,8 +144,9 @@ export async function fetchTimeSentry(since:string,until:string,options:{ consen
     const employee=await client.callTool({name:'current_employee',arguments:{}},undefined,{signal:options.signal,timeout:60_000}); ownEmployee(employee);
     const punches=await client.callTool({name:'list_punches',arguments:{fromDate:since,toDate:until}},undefined,{signal:options.signal,timeout:60_000});
     const hours=normalizePunches(employee,punches,since,until);
-    const projects=options.projects?projectContext(unwrap(await client.callTool({name:'list_projects',arguments:{}},undefined,{signal:options.signal,timeout:60_000})),unwrap(punches)):[];
-    return {hours,projects,person:employeePerson(employee)};
+    const groups=options.projects?unwrap(await client.callTool({name:'list_projects',arguments:{}},undefined,{signal:options.signal,timeout:60_000})):[];
+    const projects=options.projects?projectContext(groups,unwrap(punches)):[];
+    return {hours,projects,person:employeePerson(employee),...(options.projects?{projectWorkDays:projectWorkDays(employee,punches,groups,since,until)}:{})};
   } finally {
     clearTimeout(timeout); options.signal.removeEventListener('abort',abort);
     await client.close().catch(()=>{}); server.stop(true); tokens=undefined; verifier=''; clientInfo={client_id:CLIENT_ID};
