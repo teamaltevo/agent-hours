@@ -55,7 +55,7 @@ export interface GenerationClient {
   model:{default:(input?:undefined,options?:{signal:AbortSignal})=>Promise<{data:any}>;list:(input:{types:string[]},options:{signal:AbortSignal})=>Promise<{data:any[]}>};
   experimental:{generate:{text:(input:{prompt:string;model:{id:string;providerID:string}},options:{signal:AbortSignal})=>Promise<{text:string}>}};
 }
-/** Lazy SDK import keeps --help/demo/offline tests free of service startup. */
+/** Lazy SDK import keeps help and offline tests free of service startup. */
 export async function openCodeTransport(signal:AbortSignal):Promise<Transport> {
   const {OpenCode}=await import('@opencode/client'); const {Service}=await import('@opencode/client/service');
   signal.throwIfAborted();

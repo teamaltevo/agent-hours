@@ -18,8 +18,6 @@ export const help=`Agent Hours — private AI activity reports
 
   agent-hours [options]
 
-  --demo                    Preview with synthetic data; no reads, login or model calls
-  --demo-picker             Try the model picker with synthetic models only
   --inspect                 Inspect the latest private session index; no login
   --details                 With --inspect, show private IDs and source paths
   --label VALUE             With --inspect: work, personal, mixed, unknown
@@ -48,7 +46,7 @@ Period: January 1, 2023 through today in Montréal. Today remains partial.
 `;
 export function argumentsFor(argv:string[]) {
   const {values}=parseArgs({args:argv,strict:true,allowPositionals:false,options:{
-    help:{type:'boolean',short:'h'},demo:{type:'boolean'},'demo-picker':{type:'boolean'},inspect:{type:'boolean'},details:{type:'boolean'},label:{type:'string',default:'unknown'},limit:{type:'string',default:'30'},'no-color':{type:'boolean'},'work-only':{type:'boolean'},'no-keywords':{type:'boolean'},
+    help:{type:'boolean',short:'h'},inspect:{type:'boolean'},details:{type:'boolean'},label:{type:'string',default:'unknown'},limit:{type:'string',default:'30'},'no-color':{type:'boolean'},'work-only':{type:'boolean'},'no-keywords':{type:'boolean'},
     database:{type:'string',multiple:true},'claude-root':{type:'string',multiple:true},'codex-root':{type:'string',multiple:true},clients:{type:'string'},'data-dir':{type:'string'},model:{type:'string'},'project-aliases':{type:'string'},'timesentry-scope':{type:'string'},
     'max-calls':{type:'string',default:'200'},workers:{type:'string',default:'2'},'batch-size':{type:'string',default:'5'},'request-timeout':{type:'string',default:'60'},'session-timeout':{type:'string',default:'120'}
   }});
@@ -87,15 +85,6 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
   const cancel=()=>{abort.abort();ui.close();};process.on('SIGINT',cancel);process.on('SIGTERM',cancel);
   try {
     ui.title('Agent Hours');
-    if(options.values['demo-picker']){
-      const model=await ui.model({id:'fast',providerID:'synthetic'},[{id:'fast',providerID:'synthetic',name:'Fast model'},{id:'reasoning',providerID:'synthetic',name:'Reasoning model'}]);
-      ui.note(model?'Selected '+model.providerID+'/'+model.id:'Cancelled.');return 0;
-    }
-    if(options.values.demo){
-      ui.note('SYNTHETIC PREVIEW · no history reads, browser, model calls or files written.');
-      ui.title('Results');ui.note('OpenCode      2.35 h · response spans');ui.note('Claude Code   1.20 h · message-gap estimate');ui.note('Codex         not observed');
-      ui.note('Work 12 | Personal 8 | Mixed 2 | Unknown 3');ui.note('Estimates are not productivity or compute runtime.');return 0;
-    }
     const directory=resolve(options.values['data-dir']??(existsSync(join(process.cwd(),'local/approved-source-discovery.json'))?process.cwd():join(process.env.XDG_DATA_HOME??join(homedir(),'.local/share'),'agent-hours')));
     if(options.values.inspect){await inspectLatest(directory,ui,{label:options.values.label as Label,limit:Number(options.values.limit),details:Boolean(options.values.details)});return 0;}
     const workOnly=options.values['work-only']??await ui.historyMode();

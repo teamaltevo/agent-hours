@@ -14,13 +14,6 @@ bun install --frozen-lockfile --ignore-scripts
 bun run start
 ```
 
-Safe previews, with no history reads, sign-in, model calls or report writes:
-
-```sh
-bun run start --demo
-bun run start --demo-picker
-```
-
 Type to search in the model picker, use arrow keys to browse, Enter to select
 and Escape to cancel. F1 shows model advice. Use `--no-color` or `NO_COLOR=1`
 for the plain interface.
