@@ -1,16 +1,24 @@
-import { expect,test } from 'bun:test';
+import { expect,test,afterEach } from 'bun:test';
 import worker,{type Env,type EmailPayload} from '../worker/src/index.ts';
 import { sampleReport } from './fixtures.ts';
 import { unzipSync,strFromU8 } from 'fflate';
 import { PUBLIC_SUBMISSION_PHRASE } from '../src/submission-config.ts';
 import { Database } from 'bun:sqlite';
+import { readFileSync } from 'node:fs';
+import { publicReport } from '../src/public-report.ts';
+import { createHash } from 'node:crypto';
+
+const migrations=['0001_submissions.sql','0002_email_daily_budget.sql','0003_preparation_leases.sql'].map(file=>readFileSync('worker/migrations/'+file,'utf8'));
+const databases=new Set<Database>();afterEach(()=>{for(const db of databases)db.close();databases.clear();});
 
 function env(){
-  const rows=new Map<string,string>(),budget=new Map<string,number>();const sent:EmailPayload[]=[];let failSend=false;
-  const value:Env={REPORT_FROM:'reports@example.com',REPORT_TO:'recipient@example.com',SUBMISSION_LIMIT:{limit:async()=>({success:true})},EMAIL:{send:async message=>{if(failSend)throw new Error('PROVIDER_SECRET');sent.push(message);return {}; }},DB:{prepare(sql:string){let args:unknown[]=[];return {bind(...values:unknown[]){args=values;return this;},async run(){const id=String(args[0]);if(sql.startsWith('INSERT')){const exists=rows.has(id);if(!exists)rows.set(id,'sending');return {meta:{changes:exists?0:1}};}if(sql.includes("state='sent'"))rows.set(id,'sent');if(sql.includes("state='uncertain'"))rows.set(id,'uncertain');return {meta:{changes:1}};},async first<T>(){if(sql.startsWith('INSERT INTO email_daily_budget')){const day=String(args[0]),n=budget.get(day)??0;if(n>=Number(args[1]))return null;budget.set(day,n+1);return {attempts:n+1} as T;}return rows.has(String(args[0]))?{state:rows.get(String(args[0]))} as T:null;}};}}};
-  return {value,rows,budget,sent,fail:()=>{failSend=true;}};
+  const db=new Database(':memory:');databases.add(db);for(const sql of migrations)db.exec(sql);
+  const sent:EmailPayload[]=[];let failSend=false;
+  const value:Env={REPORT_FROM:'reports@example.com',REPORT_TO:'recipient@example.com',SUBMISSION_LIMIT:{limit:async()=>({success:true})},EMAIL:{send:async message=>{if(failSend)throw new Error('PROVIDER_SECRET');sent.push(message);return {}; }},DB:{prepare(sql:string){let args:any[]=[];return {bind(...values:unknown[]){args=values;return this;},async run(){const result=db.query(sql).run(...args);return {meta:{changes:result.changes}};},async first<T>(){return db.query(sql).get(...args) as T|null;}};}}};
+  return {value,db,get rows(){return new Map((db.query('SELECT id,state FROM submissions').all() as {id:string;state:string}[]).map(r=>[r.id,r.state]));},get budget(){return new Map((db.query('SELECT day,attempts FROM email_daily_budget').all() as {day:string;attempts:number}[]).map(r=>[r.day,r.attempts]));},sent,fail:()=>{failSend=true;}};
 }
-function request(body:unknown={version:1,participant:'participant-1',report:sampleReport()},phrase=PUBLIC_SUBMISSION_PHRASE){return new Request('https://worker.example/reports',{method:'POST',headers:{'X-Report-Phrase':phrase,'Content-Type':'application/json'},body:JSON.stringify(body)});}
+function request(body:unknown={version:1,participant:'participant-1',report:sampleReport()},phrase=PUBLIC_SUBMISSION_PHRASE){return new Request('https://worker.example/reports',{method:'POST',headers:{'X-Report-Phrase':phrase,'X-Report-Protocol':'2','Content-Type':'application/json'},body:JSON.stringify(body)});}
+const defaultId=()=>createHash('sha256').update(JSON.stringify({participant:'participant-1',report:publicReport(sampleReport())})).digest('hex');
 test('Worker requires the public phrase before parsing and cannot relay to arbitrary recipients',async()=>{
   const e=env();const r=await worker.fetch(request(undefined,'wrong'),e.value);expect(r.status).toBe(401);expect(e.sent.length).toBe(0);expect(e.rows.size).toBe(0);
 });
@@ -47,7 +55,7 @@ test('concurrent distinct submissions cannot exceed reserved daily email slots',
 });
 test('quota and receipt SQL execute against real SQLite with both migrations',async()=>{
   const db=new Database(':memory:');try{
-    db.exec(await Bun.file('worker/migrations/0001_submissions.sql').text());db.exec(await Bun.file('worker/migrations/0002_email_daily_budget.sql').text());
+    for(const sql of migrations)db.exec(sql);
     const e=env();e.value.MAX_DAILY_EMAILS='1';
     e.value.DB={prepare(sql:string){let args:any[]=[];return {bind(...values:unknown[]){args=values;return this;},async run(){const result=db.query(sql).run(...args);return {meta:{changes:result.changes}};},async first<T>(){return db.query(sql).get(...args) as T|null;}};}};
     expect((await worker.fetch(request(),e.value)).status).toBe(200);
@@ -55,4 +63,30 @@ test('quota and receipt SQL execute against real SQLite with both migrations',as
     expect((await worker.fetch(request({version:1,participant:'another',report:sampleReport()}),e.value)).status).toBe(429);
     expect(e.sent.length).toBe(1);expect(db.query('SELECT attempts FROM email_daily_budget').get()).toEqual({attempts:1});
   }finally{db.close();}
+});
+test('an expired preparation lease can recover without creating duplicate sends',async()=>{
+  const e=env(),id=defaultId();e.db.query('INSERT INTO preparation_leases VALUES (?,?,unixepoch())').run(id,'old-owner');
+  const busy=await worker.fetch(request(),e.value);expect(busy.status).toBe(202);expect(e.sent.length).toBe(0);expect(e.budget.size).toBe(0);
+  e.db.exec('UPDATE preparation_leases SET updated_at=unixepoch()-91');
+  expect((await worker.fetch(request(),e.value)).status).toBe(200);expect(e.sent.length).toBe(1);expect([...e.budget.values()]).toEqual([1]);
+});
+test('concurrent retries wait for an in-flight email instead of sending again',async()=>{
+  const e=env();let started!:()=>void,finish!:()=>void;const sending=new Promise<void>(r=>started=r),gate=new Promise<void>(r=>finish=r);
+  e.value.EMAIL.send=async message=>{e.sent.push(message);started();await gate;};
+  const first=worker.fetch(request(),e.value);await sending;
+  const pending=await worker.fetch(request(),e.value);expect(pending.status).toBe(202);expect((await pending.json() as any).stage).toBe('sending');expect(e.sent.length).toBe(1);
+  finish();expect((await first).status).toBe(200);expect((await worker.fetch(request(),e.value)).status).toBe(200);expect(e.sent.length).toBe(1);
+});
+test('a stale owner cannot send after its preparation lease is replaced',async()=>{
+  const e=env(),original=e.value.DB.prepare.bind(e.value.DB);
+  e.value.DB.prepare=(sql:string)=>{const statement=original(sql);if(sql.startsWith('INSERT INTO email_daily_budget')){const first=statement.first.bind(statement);statement.first=async<T>()=>{const result=await first<T>();e.db.exec("UPDATE preparation_leases SET token='new-owner'");return result;};}return statement;};
+  expect((await worker.fetch(request(),e.value)).status).toBe(202);expect(e.sent.length).toBe(0);expect(e.rows.size).toBe(0);
+});
+test('old ambiguous sending receipts are never automatically resent',async()=>{
+  const e=env();e.db.query("INSERT INTO submissions VALUES (?,'sending',unixepoch()-500,unixepoch()-500)").run(defaultId());
+  expect((await worker.fetch(request(),e.value)).status).toBe(409);expect(e.sent.length).toBe(0);
+});
+test('older clients cannot mistake an in-progress preparation for delivered email',async()=>{
+  const e=env();e.db.query('INSERT INTO preparation_leases VALUES (?,?,unixepoch())').run(defaultId(),'active-owner');
+  const legacy=request();legacy.headers.delete('X-Report-Protocol');const response=await worker.fetch(legacy,e.value);expect(response.status).toBe(503);expect((await response.json() as any).error).toBe('report_processing');expect(e.sent.length).toBe(0);
 });

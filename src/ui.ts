@@ -82,8 +82,7 @@ export class UI {
     this.note('Personal, mixed and unknown sessions are excluded from work totals.');
     if(report.classifier_counts.failed_calls)this.note(`Some sessions could not be classified (${report.classifier_counts.failed_calls} model requests failed).`);
     if(report.unknown_reason_counts.call_budget_exhausted)this.note(`${report.unknown_reason_counts.call_budget_exhausted} sessions reached the model request limit. Increase --max-calls to process more.`);
-    if(report.timesentry_coverage!=='operator_confirmed')this.note('Ratios withheld: TimeSentry completeness is unconfirmed.');
-    this.note('History may be incomplete. Estimates can overcount or miss activity; not productivity or compute runtime.');
+    this.note('Agent history may be incomplete. Activity estimates are not productivity or compute runtime.');
     this.note('Parallel sessions and waiting can produce ratios above 1. Today is partial.');
     this.line();this.line('  Saved: '+path);this.line('  Daily CSV: '+path.replace(/\.json$/,'.daily.csv'));
   }

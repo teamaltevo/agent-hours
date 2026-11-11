@@ -10,7 +10,7 @@ import { discover, validateRoots } from './sources.ts';
 import { openCodeTransport, Classifier } from './classifier.ts';
 import { fetchTimeSentry,openBrowser } from './timesentry.ts';
 import { applyAliases } from './projects.ts';
-import { defaultPolicy, ReportBuilder, validatePolicy } from './report.ts';
+import { ReportBuilder } from './report.ts';
 import { UI } from './ui.ts';
 import { RunProfile } from './profile.ts';
 import { inspectLatest } from './inspect.ts';
@@ -47,7 +47,6 @@ export const help=`Agent Hours — private AI activity reports
   --session-timeout N       Session classification limit in seconds (default 120)
   --no-keywords             Disable local project matching
   --project-aliases PATH    Private project alias mappings
-  --timesentry-scope VALUE  confirmed or unknown (default saved local policy)
   --no-color               Plain terminal interface
   --help                    Show help
 
@@ -90,7 +89,6 @@ const errors:Record<string,string>={
   invalid_options:'Invalid options. Run agent-hours --help for usage.',
   invalid_source_folder:'Select a client history folder, not your home or projects folder.',
   invalid_source_config:'The saved source settings are invalid.',
-  invalid_report_policy:'The saved report policy is invalid.',
   invalid_project_alias_config:'The project alias file is missing or invalid.',
   model_unavailable:'No default model is configured. Configure a model in OpenCode first.',
   browser_open_failed:'Could not open your browser. Check your default browser and try again.',
@@ -101,6 +99,13 @@ const errors:Record<string,string>={
   invalid_delivery_config:'The delivery settings are invalid. Use an HTTPS Worker endpoint ending in /reports.',
   delivery_not_configured:'Delivery is disabled. Omit --no-send to submit a saved report.',
   delivery_failed:'Email submission failed or is uncertain. Your local report is unchanged; do not retry repeatedly.',
+  delivery_busy:'The delivery service is still processing the report. Your local report is saved.',
+  delivery_uncertain:'Email delivery could not be confirmed. Check delivery status before submitting again.',
+  delivery_daily_limit:'The daily email limit was reached. Your report is saved locally.',
+  delivery_report_too_large:'This report is too large to email. Use the saved local bundle.',
+  delivery_report_rejected:'The delivery service rejected the report format. Update the CLI before retrying.',
+  delivery_phrase_rejected:'The delivery service rejected the submission phrase. Update the CLI or delivery settings.',
+  delivery_service_unavailable:'The email service is not configured correctly. Your report is saved locally.',
   incomplete_report_not_sent:'Incomplete reports cannot be emailed automatically.',
   cancelled:'Cancelled.'
 };
@@ -115,23 +120,21 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     const directory=resolve(options.values['data-dir']??(existsSync(join(process.cwd(),'local/approved-source-discovery.json'))?process.cwd():join(process.env.XDG_DATA_HOME??join(homedir(),'.local/share'),'agent-hours')));
     if(options.values.inspect){await inspectLatest(directory,ui,{label:options.values.label as Label,limit:Number(options.values.limit),details:Boolean(options.values.details)});return 0;}
     if(options.values['render-report']){
-      const report=publicReport(await readJSON(resolve(options.values['render-report']))),bundle=reportBundle(report),prefix=join(directory,'reports','rebuilt-'+randomUUID());
-      await privateWrite(prefix+'.html',bundle.html);await privateWrite(prefix+'.zip',bundle.zip);ui.note('Dashboard: '+prefix+'.html');ui.note('Report bundle: '+prefix+'.zip');return 0;
+      const report=publicReport(await readJSON(resolve(options.values['render-report'])));
+      const bundle=reportBundle(report),prefix=join(directory,'reports','rebuilt-'+randomUUID());
+      await privateWrite(prefix+'.json',bundle.json);await privateWrite(prefix+'.daily.csv',bundle.csv);await privateWrite(prefix+'.html',bundle.html);await privateWrite(prefix+'.zip',bundle.zip);ui.note('Dashboard: '+prefix+'.html');ui.note('Report bundle: '+prefix+'.zip');return 0;
     }
     const delivery=await loadDelivery(directory,{endpoint:options.values['submit-url'],disabled:options.values['no-send'],participant:options.values.participant});
     if(options.values['send-report']){
       if(!delivery)throw new SafeError('delivery_not_configured');
-      await sendReport(publicReport(await readJSON(resolve(options.values['send-report']))),delivery,abort.signal);ui.note('Email accepted by the delivery service.');return 0;
+      const report=publicReport(await readJSON(resolve(options.values['send-report'])));
+      ui.note('Sending report…');await sendReport(report,delivery,abort.signal);ui.note('Email accepted by the delivery service.');return 0;
     }
     const workOnly=options.values['work-only']??await ui.historyMode();
-    let policy={...defaultPolicy};const policyPath=join(directory,'local/report-policy.json');
-    if(existsSync(policyPath))policy=validatePolicy(await readJSON(policyPath));
-    if(options.values['timesentry-scope'])policy={...policy,timesentry_complete_confirmed:options.values['timesentry-scope']==='confirmed'};
     const since='2023-01-01',until=today();boundaries(since,until);
     const sources=await sourcesFor(directory,options);
     ui.title('Report');ui.note(`${since} – ${until} · Montréal · today is partial`);ui.note(options.clients.map(c=>names[c]).join(', '));
     ui.note(workOnly?'Work-only history (your declaration).':`Personal / mixed-use history · up to ${options.maxCalls} model requests`);
-    ui.note('TimeSentry hours '+(policy.timesentry_complete_confirmed?'confirmed complete.':'unconfirmed; ratios will be withheld.'));
     let model:Model|undefined;let transport:Awaited<ReturnType<typeof openCodeTransport>>|undefined;
     if(!workOnly){
       ui.note('Connecting to your configured OpenCode model service…');transport=await openCodeTransport(abort.signal);
@@ -154,20 +157,20 @@ export async function main(argv=process.argv.slice(2)):Promise<number> {
     ui.title(workOnly?'Reading timing history':'Reviewing sessions');ui.note('Finding sessions in the selected period…');
     const inventory=await profile.measure('metadata_discovery',()=>discover(sources,since,until,abort.signal));let completed=0;
     const classifier=workOnly?undefined:new Classifier({projects:timesentry.projects,transport:transport!,model:model!,cache:join(directory,'local/classifier-cache-ts-v1'),maxCalls:options.maxCalls,requestMs:options.requestMs,sessionMs:options.sessionMs,keywords:!options.values['no-keywords'],signal:abort.signal,profile,onRequest:active=>ui.progress(completed,inventory.candidates.length,active)});
-    builder=new ReportBuilder({since,until,...inventory,hours:timesentry.hours,confirmed:policy.timesentry_complete_confirmed,workOnly,classifier,workers:options.workers,batchSize:options.batchSize,directory,signal:abort.signal,profile,onProgress:(done,total)=>{completed=done;ui.progress(done,total,classifier?.active??0);}});
+    builder=new ReportBuilder({since,until,...inventory,hours:timesentry.hours,workOnly,classifier,workers:options.workers,batchSize:options.batchSize,directory,signal:abort.signal,profile,onProgress:(done,total)=>{completed=done;ui.progress(done,total,classifier?.active??0);}});
     if(ui.color)ticker=setInterval(()=>ui.progress(completed,inventory.candidates.length,classifier?.active??0),1000);
     const report=await builder.run();if(ticker)clearInterval(ticker);ui.summary(report,builder.path);
     const bundle=reportBundle(report),htmlPath=builder.path.replace(/\.json$/,'.html'),zipPath=builder.path.replace(/\.json$/,'.zip');
     await privateWrite(htmlPath,bundle.html);await privateWrite(zipPath,bundle.zip);ui.note('Dashboard: '+htmlPath);ui.note('Shareable bundle: '+zipPath);
     let exit=0;
-    if(delivery){try{await sendReport(report,delivery,abort.signal);ui.note('Email accepted by the delivery service.');}catch{if(abort.signal.aborted)throw new SafeError('cancelled');ui.note('Email submission failed or is uncertain. The local report and bundle are saved. Use --send-report to retry only after checking delivery status.');exit=3;}}
+    if(delivery){try{ui.note('Sending report…');await sendReport(report,delivery,abort.signal);ui.note('Email accepted by the delivery service.');}catch(error){if(abort.signal.aborted)throw new SafeError('cancelled');const code=error instanceof SafeError?error.code:'delivery_failed';ui.note(errors[code]??errors.delivery_failed);exit=3;}}
     if(ui.interactive&&!options.values['no-open'])await openBrowser(pathToFileURL(htmlPath).href).catch(()=>ui.note('Open the saved dashboard file to view your report.'));
     return exit;
   } catch(error) {
     const code=abort.signal.aborted?'cancelled':error instanceof SafeError?error.code:'run_failed';
     ui.line();ui.note(errors[code]??'Could not finish the report. Check your connection, sign-in and source settings, then try again.');
     if(builder)ui.note('Partial report: '+builder.path);
-    return code==='cancelled'?130:2;
+    return code==='cancelled'?130:code.startsWith('delivery_')?3:2;
   } finally {if(ticker)clearInterval(ticker);ui.close();process.off('SIGINT',cancel);process.off('SIGTERM',cancel);}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)process.exitCode=await main();

@@ -17,7 +17,7 @@ test('raw decimal JSON is summed before conversion to JS numbers',()=>{
 });
 test('foreign punch fails closed',()=>expect(()=>normalizePunches(result({employeeId:employee}),result([punch('p1',2,'00000000-0000-4000-8000-000000000001')]),'2026-06-01','2026-06-01')).toThrow());
 test('conflicting duplicate fails closed',()=>expect(()=>normalizePunches(result({employeeId:employee}),result([punch(),punch('p1',3)]),'2026-06-01','2026-06-01')).toThrow());
-for(const hours of [true,-1,'NaN','Infinity',null,{}])test('invalid hours '+String(hours),()=>expect(()=>normalizePunches(result({employeeId:employee}),result([punch('p1',hours)]),'2026-06-01','2026-06-01')).toThrow());
+for(const hours of [true,-1,'NaN','Infinity','1e999',null,{}])test('invalid hours '+String(hours),()=>expect(()=>normalizePunches(result({employeeId:employee}),result([punch('p1',hours)]),'2026-06-01','2026-06-01')).toThrow());
 test('punch outside range rejected',()=>expect(()=>normalizePunches(result({employeeId:employee}),result([punch('p1',2,employee,'2026-06-02')]),'2026-06-01','2026-06-01')).toThrow());
 test('structured MCP content unwraps result only',()=>expect(unwrap({structuredContent:{result:[1]}})).toEqual([1]));
 test('project context strips ticket secrets and project IDs',()=>{

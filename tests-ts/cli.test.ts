@@ -23,3 +23,7 @@ test('private inspector only shows committed fixed metadata projection',async()=
 test('offline dashboard regeneration reads only aggregate JSON, without sign-in',async()=>{
   const {sampleReport}=await import('./fixtures.ts');await writeFile(join(root,'input.json'),JSON.stringify(sampleReport()));const result=await run(['--render-report',join(root,'input.json'),'--data-dir',root]);expect(result.code).toBe(0);expect(result.stdout).toContain('Dashboard:');expect(result.stdout).not.toContain('sign-in');const files=await readdir(join(root,'reports'));expect(files.some(f=>f.endsWith('.html'))).toBe(true);expect(files.some(f=>f.endsWith('.zip'))).toBe(true);
 });
+test('obsolete saved completeness policy is not read or used as a gate',async()=>{
+  await mkdir(join(root,'local'));await writeFile(join(root,'local/report-policy.json'),'obsolete and deliberately invalid');
+  const result=await run(['--work-only','--clients','claude','--data-dir',root],'n\n');expect(result.code).toBe(0);expect(result.stdout).toContain('Cancelled');expect(result.stdout).not.toContain('completeness');
+});

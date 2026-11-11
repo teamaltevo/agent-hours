@@ -32,3 +32,19 @@ test('legacy token settings are ignored without reading a credential file',async
 test('control characters in configurable phrases are rejected',async()=>{
   await config({...settings,phrase:'unsafe\r\nheader'});await expect(loadDelivery(root)).rejects.toThrow('invalid_delivery_config');
 });
+test('automatic retry reuses exactly the same report after a transient Worker failure',async()=>{
+  let calls=0,clock=0;const bodies:string[]=[];
+  const fake=(async(_input:any,init:any)=>{bodies.push(init.body);calls++;return calls===1?Response.json({protocol:2,error:'report_preparation_failed'},{status:503,headers:{'Retry-After':'1'}}):Response.json({protocol:2,status:'accepted'});}) as unknown as typeof fetch;
+  await sendReport(sampleReport(),settings,new AbortController().signal,fake,{now:()=>clock,sleep:async ms=>{clock+=ms;}});expect(calls).toBe(2);expect(bodies[0]).toBe(bodies[1]);
+});
+test('processing responses are polled automatically without being reported as sent',async()=>{
+  let calls=0,clock=0;const fake=(async()=>++calls<3?Response.json({protocol:2,status:'processing',stage:'preparing'},{status:202,headers:{'Retry-After':'1'}}):Response.json({protocol:2,status:'accepted'})) as unknown as typeof fetch;
+  await sendReport(sampleReport(),settings,new AbortController().signal,fake,{now:()=>clock,sleep:async ms=>{clock+=ms;}});expect(calls).toBe(3);
+});
+test('network failures to the known idempotent receiver recover automatically',async()=>{
+  let calls=0,clock=0;const fake=(async()=>{if(++calls===1)throw new Error('NETWORK_SECRET');return Response.json({protocol:2,status:'accepted'});}) as unknown as typeof fetch;
+  await sendReport(sampleReport(),{...settings,endpoint:DEFAULT_SUBMISSION_ENDPOINT},new AbortController().signal,fake,{now:()=>clock,sleep:async ms=>{clock+=ms;}});expect(calls).toBe(2);
+});
+test('daily caps and uncertain email outcomes are not blindly retried',async()=>{
+  for(const code of ['daily_email_limit','delivery_uncertain']){let calls=0;const fake=(async()=>{calls++;return Response.json({protocol:2,error:code},{status:409});}) as unknown as typeof fetch;await expect(sendReport(sampleReport(),settings,new AbortController().signal,fake)).rejects.toThrow(code==='daily_email_limit'?'delivery_daily_limit':'delivery_uncertain');expect(calls).toBe(1);}
+});

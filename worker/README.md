@@ -43,9 +43,13 @@ request bodies, bearer tokens, report contents or provider error bodies.
 - Fixed sender and recipient from deployment configuration, also restricted by the
   Email Routing binding. Cloudflare must verify the destination before delivery works.
 - D1 deduplicates identical normalized reports per participant code. It stores only
-  a SHA-256 identifier, `sending`/`sent`/`uncertain` state and timestamps.
+  a SHA-256 identifier, delivery state, preparation lease nonces and timestamps.
+- A preparation lease expires after 90 seconds; a token-fenced transition to
+  `sending` prevents an expired process from sending after a replacement takes over.
+  Failed preparation is retryable because no email has started. The client can
+  poll processing receipts automatically without creating another email.
 - `sent` means the email binding accepted the message, not confirmed inbox delivery.
-- Ambiguous failures remain `uncertain` and are **not automatically resent**. An
+- Ambiguous email failures remain `uncertain` and are **not automatically resent**. An
   administrator must investigate before resetting a receipt or requesting a new send.
 - The short-window limiter is approximate per Cloudflare location. The separate
   D1 daily budget is shared globally. Neither verifies a submitter's identity;

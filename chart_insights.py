@@ -170,7 +170,7 @@ def enhance_html(text,report,data):
     local_only=report.get('classifier_counts',{}).get('keyword_work_sessions',0)==report.get('classification_counts',{}).get('work',0)
     quality=(f'<b>{failed} model requests failed</b> in this run; local matching rules supplied the included work.' if failed and local_only
              else 'Attribution uses automated rules/models or an operator declaration, not independent verification.')
-    denominator='TimeSentry hours are operator-confirmed complete.' if report.get('timesentry_coverage')=='operator_confirmed' else 'TimeSentry completeness is unconfirmed.'
+    denominator='TimeSentry hours were retrieved successfully.' if report.get('timesentry_coverage') in ('complete','operator_confirmed') else 'This older report can be rebuilt with the current CLI to calculate ratios.'
     failures='<div class="request-cells" aria-label="Failed model requests">'+''.join('<span>×</span>' for _ in range(min(failed,8)))+'</div>' if failed else ''
     headline=f'''<header class="dashboard-head"><div><p class="eyebrow">Agent hours / daily ratio explorer</p><h1>Activity ratios, with context.</h1><p class="lead">Compare captured agent activity with recorded work hours, one Montréal date at a time.</p><p class="meta">Requested period: {requested} · client metrics remain separate</p></div><aside class="scope-note"><span class="chip warn">Unverified attribution</span><p>{denominator} Agent history and work attribution remain unverified.</p>{failures}<p>{quality}</p></aside></header>'''
     text=re.sub(r'<header>.*?</header>',lambda _:headline,text,count=1,flags=re.S)

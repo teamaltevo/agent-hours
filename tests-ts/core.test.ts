@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { boundaries, localDate, mergeSpans, stable, strictJSON, timestamp } from '../src/core.ts';
 import { argumentsFor } from '../src/cli.ts';
-import { validatePolicy, defaultPolicy } from '../src/report.ts';
 
 describe('dates and timing',()=>{
   test('Montréal spring day has 23 hours',()=>{const [d]=boundaries('2026-03-08','2026-03-08');expect(d.hi-d.lo).toBe(23*3600_000);});
@@ -22,6 +21,5 @@ describe('options and policy',()=>{
   test('default limits',()=>expect(argumentsFor([]).workers).toBe(2));
   for(const args of [['--workers','5'],['--max-calls','0'],['--clients','invalid'],['--request-timeout','9'],['--timesentry-scope','yes'],['--model','invalid'],['--unknown']])test('reject '+args.join(' '),()=>expect(()=>argumentsFor(args)).toThrow());
   test('repeatable archives and client subset',()=>{const a=argumentsFor(['--database','a','--database','b','--clients','claude,codex']);expect(a.values.database).toEqual(['a','b']);expect(a.clients).toEqual(['claude','codex']);});
-  test('scope never defaults to complete',()=>expect(validatePolicy(defaultPolicy).timesentry_complete_confirmed).toBe(false));
-  test('policy refuses unexpected keys',()=>expect(()=>validatePolicy({...defaultPolicy,extra:true})).toThrow());
+  test('legacy scope flag remains parseable but no longer gates reporting',()=>expect(argumentsFor(['--timesentry-scope','unknown']).values['timesentry-scope']).toBe('unknown'));
 });

@@ -33,8 +33,8 @@ test('sum concurrent sessions; do not merge across session identities',async()=>
 test('zero denominator is missing ratio, not infinity',async()=>{
   const report=await builder([candidate('a')],true,new Map()).run();expect(report.days[0].developer_hours).toBe(0);expect(report.days[0].ratios_by_client.opencode).toBeNull();expect(report.days[0].ratio_status_by_client.opencode).toBe('zero_developer_hours');
 });
-test('unconfirmed hours withhold every denominator and ratio',async()=>{
-  const report=await builder([candidate('a')],false).run();expect(report.timesentry_coverage).toBe('unknown');expect(report.days.every(d=>d.developer_hours===null)).toBe(true);expect(report.observed_day_aggregates.opencode?.ratio).toBeNull();
+test('legacy confirmation flags do not suppress successfully returned hours',async()=>{
+  const report=await builder([candidate('a')],false).run();expect(report.timesentry_coverage).toBe('complete');expect(report.days[0].developer_hours).toBe(2);expect(report.observed_day_aggregates.opencode?.ratio).toBe(.5);
 });
 test('aggregate is ratio of sums, not mean daily ratios',async()=>{
   const report=await builder([candidate('a'),candidate('b','2026-06-02')]).run();expect(report.observed_day_aggregates.opencode?.ratio).toBe(.2);expect(report.observed_day_aggregates.opencode?.paired_days).toBe(2);

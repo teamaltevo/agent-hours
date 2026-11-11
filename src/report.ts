@@ -10,14 +10,9 @@ import { DetailBuilder } from './details.ts';
 import { dailyCSV } from './public-report.ts';
 export { dailyCSV } from './public-report.ts';
 
-export const defaultPolicy={schema_version:1,timesentry_complete_confirmed:false,unknown_policy:'exclude_as_personal_for_ratio',ratio_mode:'observed_history_lower_bound_proxy'};
-export function validatePolicy(value:any):typeof defaultPolicy {
-  if (!value||Object.keys(value).sort().join(',')!==Object.keys(defaultPolicy).sort().join(',')||value.schema_version!==1||typeof value.timesentry_complete_confirmed!=='boolean'||value.unknown_policy!==defaultPolicy.unknown_policy||value.ratio_mode!==defaultPolicy.ratio_mode) throw new SafeError('invalid_report_policy');
-  return value;
-}
 export interface BuildOptions {
   since:string;until:string;statuses:Partial<Record<Client,SourceStatus>>;candidates:Candidate[];
-  hours:Map<string,number>;confirmed:boolean;workOnly:boolean;classifier?:Classifier;
+  hours:Map<string,number>;confirmed?:boolean;workOnly:boolean;classifier?:Classifier;
   workers:number;batchSize:number;directory:string;signal:AbortSignal;
   onProgress:(done:number,total:number)=>void;
   profile?:RunProfile;
@@ -36,10 +31,10 @@ export class ReportBuilder {
     this.path=join(options.directory,'reports',`native-interactive-${options.since}--${options.until}-${id}.json`);
     this.indexPath=join(options.directory,'local',`session-index-ts-${id}.jsonl`);
     const clientReports=Object.fromEntries(active.map(client=>[client,{metric:metrics[client],source_coverage:options.statuses[client]!.coverage,classification_counts:counts(),observed_inferred_work_hours:null,keyword_related_hours:null,model_inferred_work_hours:null,source_issue_count:options.statuses[client]!.source_issue_count,available_source_count:options.statuses[client]!.available_source_count}]));
-    const days:Day[]=this.dayBounds.map(({date})=>({date,day_status:date===today()?'in_progress':'historical_date',returned_punch_hours:options.hours.get(date)??null,developer_hours:options.confirmed?options.hours.get(date)??0:null,history_observed_by_client:Object.fromEntries(active.map(c=>[c,false])),observed_inferred_work_hours:{},captured_work_hours_by_client:{},ratios_by_client:{},ratio_status_by_client:{},ratio:null}));
+    const days:Day[]=this.dayBounds.map(({date})=>({date,day_status:date===today()?'in_progress':'historical_date',returned_punch_hours:options.hours.get(date)??null,developer_hours:options.hours.get(date)??0,history_observed_by_client:Object.fromEntries(active.map(c=>[c,false])),observed_inferred_work_hours:{},captured_work_hours_by_client:{},ratios_by_client:{},ratio_status_by_client:{},ratio:null}));
     const lookup=new Map(days.map(d=>[d.date,d]));
     for (const candidate of options.candidates) for (const day of candidate.history) if (lookup.has(day)) lookup.get(day)!.history_observed_by_client[candidate.client]=true;
-    this.report={schema_version:5,implementation:'bun-typescript-v1',since:options.since,until:options.until,timezone:'America/Toronto',current_day_in_progress:options.until===today(),work_ownership_source:options.workOnly?'operator_declared_work_only':'automatic_inference',timesentry_coverage:options.confirmed?'operator_confirmed':'unknown',timesentry_retrieval:{status:'self_only_read_completed',scope_completeness:options.confirmed?'operator_confirmed':'unknown'},daily_ratio_policy:{...defaultPolicy,timesentry_complete_confirmed:options.confirmed},daily_ratio_interpretation:'Observed-history lower-bound proxy, not a guaranteed mathematical bound. Attribution and timing can overcount or miss activity. Unknowns are excluded as personal only for the estimate. Never a measure of productivity, compute runtime, human work or billing. History-date selection can bias ratios.',primary_ratio_client:active.includes('opencode')?'opencode':active[0],classification_counts:counts(),classifier_counts:{},unknown_reason_counts:{},clients:clientReports,days,observed_day_aggregates:{},default_aggregate:{paired_days:0,agent_hours:null,developer_hours:null,ratio:null},processed_sessions:0,pending_sessions:options.candidates.length,run_status:'in_progress'};
+    this.report={schema_version:5,implementation:'bun-typescript-v1',since:options.since,until:options.until,timezone:'America/Toronto',current_day_in_progress:options.until===today(),work_ownership_source:options.workOnly?'operator_declared_work_only':'automatic_inference',timesentry_coverage:'complete',timesentry_retrieval:{status:'self_only_read_completed',scope_completeness:'complete'},daily_ratio_policy:{schema_version:2,denominator:'all_returned_timesentry_hours',unknown_policy:'exclude_as_personal_for_ratio',ratio_mode:'observed_history_proxy'},daily_ratio_interpretation:'Captured activity divided by returned TimeSentry hours on dates with recorded history. Estimates are not productivity, compute runtime, human work or billing.',primary_ratio_client:active.includes('opencode')?'opencode':active[0],classification_counts:counts(),classifier_counts:{},unknown_reason_counts:{},clients:clientReports,days,observed_day_aggregates:{},default_aggregate:{paired_days:0,agent_hours:null,developer_hours:null,ratio:null},processed_sessions:0,pending_sessions:options.candidates.length,run_status:'in_progress'};
   }
   add(candidate:Candidate,session:Session,label:Label):void {
     const r=this.report;const client=r.clients[session.client]!;
@@ -68,9 +63,9 @@ export class ReportBuilder {
         const history=day.history_observed_by_client[client]===true;
         const amount=day.observed_inferred_work_hours[client]??(history?0:null);
         day.captured_work_hours_by_client[client]=amount;
-        const ratio=history&&this.options.confirmed&&(day.developer_hours??0)>0?amount!/day.developer_hours!:null;
+        const ratio=history&&(day.developer_hours??0)>0?amount!/day.developer_hours!:null;
         day.ratios_by_client[client]=ratio;
-        day.ratio_status_by_client[client]=!this.options.confirmed?'timesentry_scope_unverified':!history?'no_recorded_history':!day.developer_hours?'zero_developer_hours':'observed_subset_proxy';
+        day.ratio_status_by_client[client]=!history?'no_recorded_history':!day.developer_hours?'zero_developer_hours':'observed_subset_proxy';
         if (ratio!==null) {activity+=amount!;work+=day.developer_hours!;paired++;}
         day.ratio=day.ratios_by_client[this.report.primary_ratio_client]??null;
       }

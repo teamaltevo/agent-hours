@@ -40,7 +40,7 @@ export function normalizePunches(employeeResult:any,punchesResult:any,since:stri
     if (seen.has(p.id)) { if (seen.get(p.id)!==fingerprint) throw new SafeError('conflicting_punch'); continue; }
     seen.set(p.id,fingerprint); days.set(day,(days.get(day)??new Decimal(0)).plus(hours));
   }
-  return new Map([...days].map(([day,hours])=>[day,hours.toNumber()]));
+  return new Map([...days].map(([day,hours])=>{const value=hours.toNumber();if(!Number.isFinite(value))throw new SafeError('invalid_punch_hours');return [day,value];}));
 }
 function microsoft(url:URL):boolean { return url.protocol==='https:'&&url.hostname==='login.microsoftonline.com'&&!url.username&&!url.password&&(!url.port||url.port==='443'); }
 export function validateAuthorization(url:URL,redirect:string,state:string):void {

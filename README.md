@@ -63,11 +63,20 @@ Claude Code and Codex use successive message gaps of at most three minutes.
 The metrics remain separate; parallel sessions are summed within each client.
 
 Personal, mixed and unknown sessions are excluded from captured work totals.
-Ratios require explicitly confirmed complete TimeSentry hours and only use dates
-with retained client history and positive work hours. Missing ratios are not zero.
+Successful TimeSentry reads are treated as complete; no separate confirmation or
+scope flag is required. Ratios use returned hours on dates with retained client
+history and positive work hours. Missing ratios are not zero. Failed reads and
+invalid responses still stop reporting; zero-hour dates have no defined ratio.
 These are observed-history proxies, not guaranteed bounds or measures of
 productivity, compute runtime, human work or billing. Estimates may overcount or
 miss activity, and history-date selection can bias the result.
+
+The dashboard has an **All clients** view. Native measurements can be compared
+side by side without adding unlike metrics. New reports also include a combined
+estimate: the union of bounded message-gap intervals across work-classified
+sessions, with overlap removed and each date's work hours counted once. Older
+exports still support the side-by-side view, but cannot reconstruct a cross-client
+overlap estimate from per-client totals alone.
 
 ### Detailed measurements
 
@@ -159,9 +168,16 @@ not read for report submission. TimeSentry and model credentials are never inclu
 can supply run-level overrides. Use `--no-send` to keep a run local. The privacy
 screen shows the configured upload endpoint before the run proceeds.
 
-The report and ZIP remain local if delivery fails; the CLI exits with code 3.
-There are no automatic retries after an ambiguous send. After checking delivery
-status, an existing completed report can be submitted without rereading history:
+Automatic delivery uses the same receipt on every attempt. The CLI retries
+transient failures and waits for in-flight processing for up to three minutes;
+the Worker fences preparation attempts so they cannot create duplicate sends.
+Interrupted preparation can recover after its 90-second lease expires. An
+uncertain outcome after email sending begins is never blindly sent again.
+
+The report and ZIP remain local if delivery cannot complete; the CLI exits with
+code 3 and a specific reason. Manual submission is a recovery option, not a normal
+step. After checking delivery status, a saved report can be submitted without
+rereading history:
 
 ```sh
 bun run start --send-report /path/to/completed-report.json
@@ -180,6 +196,17 @@ bun run start --render-report /path/to/completed-report.json
 ```
 
 Interactive runs open the dashboard after saving unless `--no-open` is set.
+
+Existing successful exports with old "unconfirmed" metadata automatically get
+their ratios rebuilt when rendered or submitted again, without rereading history
+or repeating classification:
+
+```sh
+bun run start --render-report /path/to/report.json
+```
+
+Obsolete local completeness-policy files and old confirmation flags no longer
+control ratio availability.
 
 ## Development
 

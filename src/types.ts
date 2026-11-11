@@ -43,6 +43,7 @@ export interface Day {
   ratios_by_client:Partial<Record<Client,number|null>>;
   ratio_status_by_client:Partial<Record<Client,string>>; ratio:number|null;
   details_by_client?:Partial<Record<Client,DailyDetails>>;
+  combined?:CombinedDay;
 }
 export interface ClientReport {
   metric:string; source_coverage:SourceStatus['coverage']; classification_counts:Counts;
@@ -53,7 +54,7 @@ export interface ClientReport {
 export interface Aggregate { paired_days:number; captured_activity_hours:number|null; developer_hours:number|null; ratio:number|null; metric:string }
 export interface Report {
   schema_version:5; implementation:'bun-typescript-v1'; since:string; until:string; timezone:'America/Toronto';
-  current_day_in_progress:boolean; work_ownership_source:string; timesentry_coverage:'operator_confirmed'|'unknown';
+  current_day_in_progress:boolean; work_ownership_source:string; timesentry_coverage:'complete'|'operator_confirmed'|'unknown';
   timesentry_retrieval:{ status:'self_only_read_completed'; scope_completeness:string };
   daily_ratio_policy:Record<string,unknown>; daily_ratio_interpretation:string; primary_ratio_client:Client;
   classification_counts:Counts; classifier_counts:Record<string,number>; unknown_reason_counts:Record<string,number>;
@@ -63,5 +64,8 @@ export interface Report {
   processed_session_count?:number; pending_session_count?:number; profiling?:Record<string,unknown>;
   telemetry_schema_version?:1; telemetry_interpretation?:string;
   period_summaries?:{week:PeriodSummary[];month:PeriodSummary[]};
+  combined?:{metric:'cross_client_message_gap_union_ms';aggregate:Aggregate;details:DailyDetails;period_summaries:{week:CombinedPeriod[];month:CombinedPeriod[]}};
 }
 export interface PeriodSummary { period:string; client:Client; developer_hours:number|null; captured_work_hours:number|null; paired_days:number; paired_activity_hours:number|null; paired_developer_hours:number|null; ratio:number|null; days_with_activity_and_zero_work:number; details:DailyDetails }
+export interface CombinedDay {history_observed:boolean;captured_work_hours:number|null;ratio:number|null;ratio_status:string;details:DailyDetails}
+export type CombinedPeriod=Omit<PeriodSummary,'client'>;

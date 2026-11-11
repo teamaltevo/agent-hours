@@ -156,7 +156,7 @@ figure{{margin:0 0 var(--s-5)}}figcaption{{margin-top:var(--s-3)}}.sources{{marg
 </style></head><body><main>
 <header><p class="eyebrow">Agent hours / observed-history proxy</p><h1>Daily captured activity per work hour</h1>
 <p class="lead">Each bar is one Montréal date with recorded history and positive TimeSentry hours.</p>
-<p class="meta">Requested period: {report['since']}–{report['until']} · TimeSentry complete by operator confirmation · clients stay separate</p></header>
+<p class="meta">Requested period: {report['since']}–{report['until']} · TimeSentry returned hours · clients stay separate</p></header>
 {''.join(options)}<div class="client-tabs" aria-label="Choose a client">{''.join(labels)}</div><div class="panels">{''.join(panels)}</div>
 <p><span class="chip warn">Rules-only / unverified</span> {html.escape(quality)}</p>
 <p class="meta">Parallel sessions sum, and OpenCode spans include tool/test waiting. Ratios above 1× are not speedup or productivity. Missing ratios stay missing; captured zeros are not proof of zero usage. This is not a guaranteed full-period lower bound.</p>
