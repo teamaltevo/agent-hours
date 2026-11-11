@@ -6,6 +6,9 @@ import { spans, transcript } from './sources.ts';
 import { Classifier, redact } from './classifier.ts';
 import { counts, metrics, type Report, type Candidate, type Client, type Session, type Label, type SourceStatus, type Day } from './types.ts';
 import type { RunProfile } from './profile.ts';
+import { DetailBuilder } from './details.ts';
+import { dailyCSV } from './public-report.ts';
+export { dailyCSV } from './public-report.ts';
 
 export const defaultPolicy={schema_version:1,timesentry_complete_confirmed:false,unknown_policy:'exclude_as_personal_for_ratio',ratio_mode:'observed_history_lower_bound_proxy'};
 export function validatePolicy(value:any):typeof defaultPolicy {
@@ -22,10 +25,13 @@ export interface BuildOptions {
 export class ReportBuilder {
   report:Report;dayBounds:ReturnType<typeof boundaries>;path:string;indexPath:string;done=0;
   private writeQueue=Promise.resolve();
+  private details:DetailBuilder;
+  private lastSavedDone=0;private lastSavedAt=performance.now();
   constructor(public options:BuildOptions) {
     const active=Object.keys(options.statuses) as Client[];
     if (!active.length) throw new SafeError('no_clients');
     this.dayBounds=boundaries(options.since,options.until);
+    this.details=new DetailBuilder(this.dayBounds);
     const id=randomUUID();
     this.path=join(options.directory,'reports',`native-interactive-${options.since}--${options.until}-${id}.json`);
     this.indexPath=join(options.directory,'local',`session-index-ts-${id}.jsonl`);
@@ -38,6 +44,7 @@ export class ReportBuilder {
   add(candidate:Candidate,session:Session,label:Label):void {
     const r=this.report;const client=r.clients[session.client]!;
     r.classification_counts[label]++;client.classification_counts[label]++;
+    this.details.add(session,label,candidate.history);
     if (label==='unknown') {const reason=session.reason??'reason_unavailable';r.unknown_reason_counts[reason]=(r.unknown_reason_counts[reason]??0)+1;}
     if (label==='work') {
       const intervals=spans(session);
@@ -70,8 +77,10 @@ export class ReportBuilder {
       this.report.observed_day_aggregates[client]={paired_days:paired,captured_activity_hours:paired?activity:null,developer_hours:paired?work:null,ratio:paired?activity/work:null,metric:metrics[client]};
     }
     this.report.classifier_counts=this.options.classifier?.counts()??{model_calls:0,cache_hits:0,failed_calls:0};
+    this.details.apply(this.report);
   }
   async save(initial=false):Promise<void> {
+    this.lastSavedDone=this.done;this.lastSavedAt=performance.now();
     this.ratios();this.report.processed_session_count=this.report.processed_sessions;this.report.pending_session_count=this.report.pending_sessions;
     if(this.options.profile){const c=this.options.classifier;this.report.profiling={...this.options.profile.snapshot(),requests:{success:c?.successful??0,failed:c?.failed??0,peak_concurrent:c?.peak??0}};}
     const text=JSON.stringify(this.report,null,2)+'\n';const processed=this.done,pending=this.report.pending_sessions,status=this.report.run_status;
@@ -92,7 +101,8 @@ export class ReportBuilder {
       let batch:{candidate:Candidate;session:Session}[]=[];let chars=0;
       const consume=async(items:typeof batch,results:Label[])=>{
         for (let i=0;i<items.length;i++) {const {candidate,session}=items[i];this.add(candidate,session,results[i]);await this.index(candidate,session,results[i]);}
-        this.options.onProgress(this.done,this.options.candidates.length);await this.save();
+        this.options.onProgress(this.done,this.options.candidates.length);
+        if(this.done===this.options.candidates.length||this.done-this.lastSavedDone>=20||performance.now()-this.lastSavedAt>=2000)await this.save();
       };
       const flush=async()=>{if (!batch.length) return;const items=batch;batch=[];chars=0;await consume(items,await this.options.classifier!.classifyBatch(items.map(x=>x.session)));};
       for (const candidate of group) {
@@ -135,12 +145,4 @@ export class ReportBuilder {
       await this.save();await appendFile(this.indexPath,JSON.stringify({kind:'status',run_status:this.report.run_status,indexed_sessions:this.done,report_processed_sessions:this.done,expected_sessions:this.options.candidates.length})+'\n');throw error;
     }
   }
-}
-export function dailyCSV(report:Report):string {
-  const rows=['date,timezone,client,metric,history_observed,captured_work_hours,developer_hours,ratio,ratio_status,day_status'];
-  for (const day of report.days) for (const client of Object.keys(report.clients) as Client[]) {
-    if (day.history_observed_by_client[client]!==true) continue;
-    rows.push([day.date,report.timezone,client,metrics[client],'True',day.captured_work_hours_by_client[client]??'',day.developer_hours??'',day.ratios_by_client[client]??'',day.ratio_status_by_client[client],day.day_status].join(','));
-  }
-  return rows.join('\n')+'\n';
 }

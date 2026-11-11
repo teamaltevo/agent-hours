@@ -1,7 +1,7 @@
-export const clients = ['opencode', 'claude', 'codex'] as const;
+export const clients = ['opencode', 'claude', 'codex', 'claude-desktop'] as const;
 export type Client = typeof clients[number];
-export const names: Record<Client,string> = { opencode:'OpenCode', claude:'Claude Code', codex:'Codex' };
-export const metrics: Record<Client,string> = { opencode:'recorded_assistant_response_span_ms', claude:'bounded_message_gap_estimate_ms', codex:'bounded_message_gap_estimate_ms' };
+export const names: Record<Client,string> = { opencode:'OpenCode', claude:'Claude Code', codex:'Codex', 'claude-desktop':'Claude Chat (Desktop/web)' };
+export const metrics: Record<Client,string> = { opencode:'recorded_assistant_response_span_ms', claude:'bounded_message_gap_estimate_ms', codex:'bounded_message_gap_estimate_ms', 'claude-desktop':'bounded_message_gap_estimate_ms' };
 export const labels = ['work','personal','mixed','unknown'] as const;
 export type Label = typeof labels[number];
 export type Span = [number,number];
@@ -14,7 +14,21 @@ export interface Session {
   client:Client; identity:string; directory:string|null; records:Map<string,RecordEntry>;
   sources:string[]; reasons:Set<string>; incomplete:boolean; conflict:boolean; retained:number;
   label?:Label; reason?:string; method?:'model'|'keyword'|'declared';
+  telemetry?:Telemetry;
 }
+export const toolCategories=['shell','file_read','file_write','search','web','browser','agent','other'] as const;
+export type ToolCategory=typeof toolCategories[number];
+export type ToolStatus='success'|'failure'|'unknown';
+export interface ToolEvent { id:string; category:ToolCategory; command_family:string|null; start:number|null; end:number|null; duration_ms:number|null; timing:'recorded_interval'|'recorded_duration'|'round_trip'|'unavailable'; status:ToolStatus; conflict?:boolean }
+export interface UsageEvent { id:string; at:number|null; input:number|null; output:number|null; cache_read:number|null; cache_write:number|null; reasoning:number|null; cost_usd:number|null }
+export interface DurationEvent { id:string; at:number|null; duration_ms:number }
+export interface Telemetry { tools:Map<string,ToolEvent>; usage:Map<string,UsageEvent>; turns:Map<string,DurationEvent>; recorded_spans:Map<string,Span>; rejected:Set<string>; issues:number }
+export interface Distribution { count:number; total_ms:number; min_ms:number|null; median_ms:number|null; p95_ms:number|null; max_ms:number|null; frequencies_ms:[number,number][] }
+export interface ToolSummary { calls:number; success:number; failure:number; unknown_status:number; missing_duration:number; recorded_duration:Distribution; observed_round_trip:Distribution; by_category:Record<ToolCategory,ToolSummaryLeaf>; shell_command_families:Record<string,ToolSummaryLeaf>; coverage:'partial'|'unavailable' }
+export interface ToolSummaryLeaf { calls:number; success:number; failure:number; unknown_status:number; missing_duration:number; recorded_duration:Distribution; observed_round_trip:Distribution }
+export interface UsageSummary { input_tokens:number|null; output_tokens:number|null; cache_read_tokens:number|null; cache_write_tokens:number|null; reasoning_tokens:number|null; reported_estimated_cost_usd:number|null; samples:number }
+export interface ActivitySummary { summed_hours:number; elapsed_union_hours:number; overlapping_hours:number; peak_concurrency:number; recorded_span_hours:number|null; recorded_turn_duration_hours:number|null; bounded_message_gap_hours:number|null }
+export interface DailyDetails { sessions:Counts; attribution:{model:number;keyword:number;declared:number}; tools:ToolSummary; usage:UsageSummary; activity:ActivitySummary; telemetry_issues:number }
 export interface Candidate {
   client:Client; identity:string; directory:string|null; sources:string[]; size:number;
   history:string[]; metadata:Session; load:()=>Promise<Session>;
@@ -28,11 +42,13 @@ export interface Day {
   captured_work_hours_by_client:Partial<Record<Client,number|null>>;
   ratios_by_client:Partial<Record<Client,number|null>>;
   ratio_status_by_client:Partial<Record<Client,string>>; ratio:number|null;
+  details_by_client?:Partial<Record<Client,DailyDetails>>;
 }
 export interface ClientReport {
   metric:string; source_coverage:SourceStatus['coverage']; classification_counts:Counts;
   observed_inferred_work_hours:number|null; keyword_related_hours:number|null;
   model_inferred_work_hours:number|null; source_issue_count:number; available_source_count:number;
+  details?:DailyDetails;
 }
 export interface Aggregate { paired_days:number; captured_activity_hours:number|null; developer_hours:number|null; ratio:number|null; metric:string }
 export interface Report {
@@ -45,4 +61,7 @@ export interface Report {
   default_aggregate:{ paired_days:0; agent_hours:null; developer_hours:null; ratio:null };
   processed_sessions:number; pending_sessions:number; run_status:'in_progress'|'completed'|'interrupted'|'failed';
   processed_session_count?:number; pending_session_count?:number; profiling?:Record<string,unknown>;
+  telemetry_schema_version?:1; telemetry_interpretation?:string;
+  period_summaries?:{week:PeriodSummary[];month:PeriodSummary[]};
 }
+export interface PeriodSummary { period:string; client:Client; developer_hours:number|null; captured_work_hours:number|null; paired_days:number; paired_activity_hours:number|null; paired_developer_hours:number|null; ratio:number|null; days_with_activity_and_zero_work:number; details:DailyDetails }

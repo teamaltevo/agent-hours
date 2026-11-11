@@ -83,7 +83,7 @@ def calendar_svg(report,client):
 def insights(report,data):
     primary='opencode' if 'opencode' in data else next(iter(data))
     values=data[primary]; points=values['points']
-    name={'opencode':'OpenCode','claude':'Claude Code','codex':'Codex'}[primary]
+    name={'opencode':'OpenCode','claude':'Claude Code','codex':'Codex','claude-desktop':'Claude Chat (Desktop/web)'}[primary]
     n=len(points); spans=sum(p['activity'] for p in points); work=sum(p['work'] for p in points)
     maximum=max(1,math.ceil(max(spans,work)/100)*100)
     hour_bars=measure('Activity spans',spans,maximum)+measure('Recorded work',work,maximum,neutral=True)

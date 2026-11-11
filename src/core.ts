@@ -81,7 +81,7 @@ export function strictJSON(text:string,parseNumber?:(literal:string)=>unknown):a
 }
 export async function readJSON(path:string):Promise<any> { return strictJSON(await readFile(path,'utf8')); }
 /** Create owner-only files; atomically publish. Never replace a pre-existing report. */
-export async function privateWrite(path:string,text:string,replace=false):Promise<void> {
+export async function privateWrite(path:string,text:string|Uint8Array,replace=false):Promise<void> {
   await mkdir(dirname(path),{recursive:true,mode:0o700});
   // Reject redirected private output folders rather than follow a local/ symlink.
   for(const directory of [dirname(path),dirname(dirname(path))]) {

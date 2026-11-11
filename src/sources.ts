@@ -7,9 +7,11 @@ import { boundaries, hash, stable, timestamp, mergeSpans, SafeError, strictJSON 
 import type { Candidate, Client, Session, RecordEntry, SourceStatus, Span } from './types.ts';
 import { reasonCodes } from './types.ts';
 import { StrictZstdFrames } from './zstd.ts';
+import { telemetry,meta,mergeTelemetry,claudeTelemetry,codexTelemetry,nativeUsage,addUsage,addTool,category,commandFamily } from './telemetry.ts';
+import { exportEntries,readExportEntry,desktopConversation } from './desktop.ts';
 
 const TEXT_LIMIT=300_000;
-export const newSession=(client:Client,identity:string,directory:string|null=null):Session => ({ client,identity,directory,records:new Map(),sources:[],reasons:new Set(),incomplete:false,conflict:false,retained:0 });
+export const newSession=(client:Client,identity:string,directory:string|null=null):Session => ({ client,identity,directory,records:new Map(),sources:[],reasons:new Set(),incomplete:false,conflict:false,retained:0,telemetry:telemetry() });
 export function addRecord(s:Session,id:string,record:RecordEntry):void {
   if (record.start===null) { s.incomplete=true; s.reasons.add('missing_message_timestamp'); }
   const prior=s.records.get(id);
@@ -24,6 +26,7 @@ export function combine(a:Session,b:Session):Session {
   b.reasons.forEach(r=>a.reasons.add(r));
   a.sources=[...new Set([...a.sources,...b.sources])];
   for (const [id,record] of b.records) addRecord(a,id,record);
+  mergeTelemetry(meta(a),meta(b));
   return a;
 }
 export function transcript(s:Session):string {
@@ -34,8 +37,16 @@ export function spans(s:Session):Span[] {
   const points=[...new Set([...s.records.values()].map(r=>r.start).filter((n):n is number=>n!==null))].sort((a,b)=>a-b);
   return points.slice(1).flatMap((b,i)=>b-points[i]<=180_000&&b>points[i]?[[points[i],b] as Span]:[]);
 }
+export function messageGapSpans(s:Session):Span[] {
+  const points=[...new Set([...s.records.values()].map(r=>r.start).filter((n):n is number=>n!==null))].sort((a,b)=>a-b);
+  return points.slice(1).flatMap((b,i)=>b-points[i]<=180_000&&b>points[i]?[[points[i],b] as Span]:[]);
+}
 function relevant(s:Session,lo:number,hi:number):boolean {
-  return [...s.records.values()].some(r=>r.start!==null && ((lo<=r.start&&r.start<hi)||(r.start<lo&&r.end!==null&&r.end>lo)));
+    return [...s.records.values()].some(r=>r.start!==null && ((lo<=r.start&&r.start<hi)||(r.start<lo&&r.end!==null&&r.end>lo)))||
+      [...(s.telemetry?.tools.values()??[])].some(e=>[e.start,e.end].some(t=>t!==null&&lo<=t&&t<hi)||(e.start!==null&&e.end!==null&&e.start<hi&&e.end>lo))||
+      [...(s.telemetry?.turns.values()??[])].some(e=>e.at!==null&&lo<=e.at&&e.at<hi)||
+      [...(s.telemetry?.usage.values()??[])].some(e=>e.at!==null&&lo<=e.at&&e.at<hi)||
+      [...(s.telemetry?.recorded_spans.values()??[])].some(([a,b])=>a<hi&&b>lo);
 }
 export function historyDates(s:Session,days:ReturnType<typeof boundaries>):string[] {
   return days.filter(d=>relevant(s,d.lo,d.hi)).map(d=>d.date);
@@ -97,6 +108,8 @@ export async function readTranscript(path:string,client:Client,metadataOnly=fals
     catch { response.incomplete=event.incomplete=true; response.reasons.add('malformed_transcript'); event.reasons.add('malformed_transcript'); continue; }
     if (client==='codex'&&rec.type==='session_meta') { if (typeof rec.payload?.id==='string') identity=rec.payload.id; if (typeof rec.payload?.cwd==='string') cwd=rec.payload.cwd; }
     if (client==='claude') { if (typeof rec.sessionId==='string') identity=rec.sessionId; if (typeof rec.cwd==='string') cwd=rec.cwd; }
+    if(client==='claude')claudeTelemetry(meta(response),rec);
+    if(client==='codex')codexTelemetry(meta(response),rec);
     let message=client==='claude'?rec.message:rec.payload;
     if (!message||typeof message!=='object') continue;
     let role=client==='claude'?rec.type:message.role; let target=response;
@@ -107,7 +120,9 @@ export async function readTranscript(path:string,client:Client,metadataOnly=fals
       } else continue;
     }
     if (role!=='user'&&role!=='assistant') continue;
-    const raw=textContent(message.content); if (!raw) continue;
+    const raw=textContent(message.content);
+    const toolBlocks=Array.isArray(message.content)&&message.content.some((b:any)=>['tool_use','tool_result'].includes(b?.type));
+    if (!raw&&!toolBlocks) continue;
     const start=timestamp(rec.timestamp); const directory=typeof rec.cwd==='string'?rec.cwd:cwd;
     // A content fingerprint detects changed/conflicting mirrors even in metadata mode.
     const fingerprint=hash(stable([role,start,null,raw,directory]));
@@ -116,6 +131,7 @@ export async function readTranscript(path:string,client:Client,metadataOnly=fals
     addRecord(target,key,{role,start,end:null,text:metadataOnly?'':raw,cwd:directory,fingerprint});
   }
   const result=client==='codex'&&!hasResponses?event:response;
+  if(result===event)mergeTelemetry(meta(event),meta(response));
   if (client==='claude'&&basename(dirname(path))==='subagents') identity+=':subagent:'+stem;
   result.identity=identity; result.directory=cwd; result.sources=[path]; return result;
 }
@@ -124,15 +140,16 @@ function readDatabase(path:string,metadataOnly=true,selected?:string):Session[] 
   try {
     db.exec('PRAGMA query_only=ON; BEGIN');
     const sessions=selected?db.query('SELECT id,directory FROM session WHERE id=?').all(selected):db.query('SELECT id,directory FROM session').all();
-    const hasParts=!metadataOnly&&Boolean(db.query("SELECT 1 FROM sqlite_master WHERE name='part' AND type='table'").get());
+    const hasParts=Boolean(db.query("SELECT 1 FROM sqlite_master WHERE name='part' AND type='table'").get());
     const rows=db.query(`SELECT id,json_extract(data,'$.role') role,json_extract(data,'$.time.created') start,
-      json_extract(data,'$.time.completed') end,json_extract(data,'$.path.cwd') cwd FROM message WHERE session_id=?`);
+      json_extract(data,'$.time.completed') end,json_extract(data,'$.path.cwd') cwd,
+      json_extract(data,'$.tokens') tokens,json_extract(data,'$.cost') cost FROM message WHERE session_id=?`);
     return (sessions as {id:string;directory:string|null}[]).map(row=>{
       const s=newSession('opencode',row.id,row.directory); s.sources=[path];
       for (const rec of rows.all(row.id) as any[]) {
         if (rec.role!=='user'&&rec.role!=='assistant') continue;
         let text='';
-        if (hasParts) {
+        if (hasParts&&!metadataOnly) {
           const pieces:string[]=[];let length=0;
           const parts=db.query("SELECT substr(json_extract(data,'$.text'),1,300001) text FROM part WHERE message_id=? AND json_extract(data,'$.type')='text' ORDER BY id");
           for (const part of parts.iterate(rec.id) as Iterable<{text:unknown}>) {
@@ -147,13 +164,25 @@ function readDatabase(path:string,metadataOnly=true,selected?:string):Session[] 
         // Text is intentionally absent in database timing discovery/work-only mode.
         entry.fingerprint=hash(stable([entry.role,entry.start,entry.end,entry.cwd,metadataOnly?null:text]));
         addRecord(s,rec.id,entry);
+        if(rec.role==='assistant'){let tokens:any;try{tokens=typeof rec.tokens==='string'?strictJSON(rec.tokens):rec.tokens;}catch{}const usage=nativeUsage('message:'+rec.id,entry.start,tokens,rec.cost,'opencode');if(usage)addUsage(meta(s),usage);}
+      }
+      if(hasParts){
+        // SQL projects only numeric timing, fixed state/name and command family
+        // input; outputs, arbitrary metadata and full part JSON are never kept.
+        const tools=db.query(`SELECT p.id,json_extract(p.data,'$.callID') call_id,json_extract(p.data,'$.tool') tool,
+          json_extract(p.data,'$.state.status') status,json_extract(p.data,'$.state.time.start') start,json_extract(p.data,'$.state.time.end') end,
+          substr(json_extract(p.data,'$.state.input.command'),1,100001) command FROM part p JOIN message m ON p.message_id=m.id
+          WHERE m.session_id=? AND json_extract(p.data,'$.type')='tool'`).all(row.id) as any[];
+        for(const tool of tools){const start=timestamp(tool.start),end=timestamp(tool.end),c=category(tool.tool);const valid=start!==null&&end!==null&&end>=start;
+          addTool(meta(s),{id:typeof tool.call_id==='string'?tool.call_id:String(tool.id),category:c,command_family:c==='shell'?commandFamily(tool.command):null,start,end,duration_ms:valid?end-start:null,timing:valid?'recorded_interval':'unavailable',status:tool.status==='completed'?'success':tool.status==='error'?'failure':'unknown'});
+        }
       }
       return s;
     });
   } finally { db.close(); }
 }
 function metadataSignature(s:Session):string {
-  return stable({directory:s.directory,records:[...s.records].map(([id,r])=>[id,r.role,r.start,r.end,r.cwd]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))) });
+  return stable({directory:s.directory,records:[...s.records].map(([id,r])=>[id,r.role,r.start,r.end,r.cwd]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))),telemetry:s.telemetry?{tools:[...s.telemetry.tools].sort(),usage:[...s.telemetry.usage].sort(),turns:[...s.telemetry.turns].sort(),spans:[...s.telemetry.recorded_spans].sort()}:null });
 }
 export interface Inventory { candidates:Candidate[]; statuses:Partial<Record<Client,SourceStatus>> }
 export async function discover(sources:Partial<Record<Client,string[]>>,since:string,until:string,signal?:AbortSignal):Promise<Inventory> {
@@ -161,17 +190,22 @@ export async function discover(sources:Partial<Record<Client,string[]>>,since:st
   const candidates:Candidate[]=[]; const statuses:Inventory['statuses']={};
   for (const [client,paths] of Object.entries(sources) as [Client,string[]][]) {
     let issues=0,available=0; const sessions=new Map<string,Session>(); const stamps=new Map<string,string>(); const scanned=new Set<string>();
+    const offsets=new Map<string,Map<string,{start:number;end:number}[]>>();
     for (const path of [...new Set(paths)]) {
       signal?.throwIfAborted();
       try {
         const canonical=await realpath(path);
         if (scanned.has(canonical)) continue; scanned.add(canonical);
-        const files=client==='opencode'?[canonical]:await transcriptPaths(canonical,client); available++;
+        const files=client==='opencode'||client==='claude-desktop'?[canonical]:await transcriptPaths(canonical,client); available++;
         for (const file of files) {
           signal?.throwIfAborted();
           try {
             const stats=await stat(file); stamps.set(file,`${stats.size}:${stats.mtimeMs}:${stats.ino}`);
-            const found=client==='opencode'?readDatabase(file,true):[await readTranscript(file,client,true)];
+            const found:Session[]=[];
+            if(client==='claude-desktop'){
+              const ranges=new Map<string,{start:number;end:number}[]>();offsets.set(file,ranges);
+              for await(const entry of exportEntries(file)){const s=desktopConversation(entry.value,true);s.sources=[file];found.push(s);const list=ranges.get(s.identity)??[];list.push({start:entry.start,end:entry.end});ranges.set(s.identity,list);}
+            }else found.push(...(client==='opencode'?readDatabase(file,true):[await readTranscript(file,client,true)]));
             for (const session of found) {
               const old=sessions.get(session.identity); if (old) combine(old,session); else sessions.set(session.identity,session);
             }
@@ -193,7 +227,10 @@ export async function discover(sources:Partial<Record<Client,string[]>>,since:st
                 const stats=await stat(file);
                 if (`${stats.size}:${stats.mtimeMs}:${stats.ino}`!==stamps.get(file)) throw new SafeError('source_changed_since_discovery');
               }
-              const next=client==='opencode'?readDatabase(file,false,metadata.identity)[0]:await readTranscript(file,client);
+              let next:Session|undefined;
+              if(client==='claude-desktop'){
+                for(const range of offsets.get(file)?.get(metadata.identity)??[]){const entry=desktopConversation(await readExportEntry(file,range.start,range.end));entry.sources=[file];next=next?combine(next,entry):entry;}
+              }else next=client==='opencode'?readDatabase(file,false,metadata.identity)[0]:await readTranscript(file,client);
               if (!next || next.identity!==metadata.identity) throw new SafeError('source_metadata_ambiguous');
               result=result?combine(result,next):next;
             }

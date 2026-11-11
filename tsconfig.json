@@ -4,5 +4,5 @@
     "strict": true, "noEmit": true, "skipLibCheck": true,
     "allowImportingTsExtensions": true, "types": ["bun"]
   },
-  "include": ["src/**/*.ts", "tests-ts/**/*.ts"]
+  "include": ["src/**/*.ts", "tests-ts/**/*.ts", "worker/src/**/*.ts"]
 }

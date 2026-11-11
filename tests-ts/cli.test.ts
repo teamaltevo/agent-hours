@@ -20,3 +20,6 @@ test('private inspector only shows committed fixed metadata projection',async()=
   await writeFile(join(root,'local/session-index-synthetic.jsonl'),rows.map(r=>JSON.stringify(r)).join('\n')+'\n{truncated');
   const result=await run(['--inspect','--details','--data-dir',root]);expect(result.code).toBe(0);expect(result.stdout).toContain('Private local diagnostics');expect(result.stdout).toContain('failure_circuit_open');expect(result.stdout).not.toContain('NEVER_PRINT');expect(result.stdout).not.toContain('/uncommitted');
 });
+test('offline dashboard regeneration reads only aggregate JSON, without sign-in',async()=>{
+  const {sampleReport}=await import('./fixtures.ts');await writeFile(join(root,'input.json'),JSON.stringify(sampleReport()));const result=await run(['--render-report',join(root,'input.json'),'--data-dir',root]);expect(result.code).toBe(0);expect(result.stdout).toContain('Dashboard:');expect(result.stdout).not.toContain('sign-in');const files=await readdir(join(root,'reports'));expect(files.some(f=>f.endsWith('.html'))).toBe(true);expect(files.some(f=>f.endsWith('.zip'))).toBe(true);
+});

@@ -8,7 +8,7 @@ from pathlib import Path
 import statistics
 
 
-LABELS={'opencode':'OpenCode','claude':'Claude Code','codex':'Codex'}
+LABELS={'opencode':'OpenCode','claude':'Claude Code','codex':'Codex','claude-desktop':'Claude Chat (Desktop/web)'}
 
 
 def chart_data(report):
