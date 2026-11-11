@@ -71,7 +71,8 @@ export default {
     }catch{return json({error:'temporarily_unavailable',submission_id:id},503,15);}
     try{
       const test=parsed.participant.startsWith('test-');
-      await env.EMAIL.send({to:env.REPORT_TO,from:env.REPORT_FROM,subject:`${test?'TEST — ':''}Agent Hours · ${parsed.participant} · ${report.since}–${report.until}`,text:`${test?'TEST REPORT — SYNTHETIC DATA ONLY\n\n':''}Agent Hours: ${parsed.participant}\n${report.since}–${report.until} · Montréal\n\nOpen report.html inside the attached ZIP. JSON and CSV data are included.\nUnverified submission; measurement definitions are in the dashboard.`,attachments:[{filename:`agent-hours-${id.slice(0,12)}.zip`,type:'application/zip',disposition:'attachment',content:base64(bundle.zip)}]});
+      const person=report.person?.name??parsed.participant;
+      await env.EMAIL.send({to:env.REPORT_TO,from:env.REPORT_FROM,subject:`${test?'TEST — ':''}Agent Hours · ${person} · ${report.since}–${report.until}`,text:`${test?'TEST REPORT — SYNTHETIC DATA ONLY\n\n':''}Agent Hours: ${person}\n${report.since}–${report.until} · Montréal\n\nOpen report.html inside the attached ZIP. JSON and CSV data are included.\nUnverified submission; measurement definitions are in the dashboard.`,attachments:[{filename:`agent-hours-${id.slice(0,12)}.zip`,type:'application/zip',disposition:'attachment',content:base64(bundle.zip)}]});
       await env.DB.prepare("UPDATE submissions SET state='sent',updated_at=unixepoch() WHERE id=?").bind(id).run();
       await env.DB.prepare('DELETE FROM preparation_leases WHERE id=? AND token=?').bind(id,lease).run().catch(()=>{});
       return json({status:'accepted',submission_id:id});

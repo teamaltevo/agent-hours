@@ -6,7 +6,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { boundaries, localDate, SafeError, stable, strictJSON } from './core.ts';
 import { projectContext } from './projects.ts';
-import type { Project } from './types.ts';
+import type { Project,ReportPerson } from './types.ts';
+import { personFromProfile } from './person.ts';
 
 export const SERVER='https://api.timesentry.app/mcp';
 export const CLIENT_ID='ff5184df-31f6-45f0-8f78-4e2000860bd6';
@@ -26,6 +27,7 @@ export function ownEmployee(result:any):string {
   if (typeof value!=='string'||!/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value)) throw new SafeError('invalid_employee');
   return value.toLowerCase();
 }
+export function employeePerson(result:any):ReportPerson|undefined {ownEmployee(result);return personFromProfile(unwrap(result));}
 export function normalizePunches(employeeResult:any,punchesResult:any,since:string,until:string):Map<string,number> {
   boundaries(since,until); const employee=ownEmployee(employeeResult); const punches=unwrap(punchesResult,true);
   if (!Array.isArray(punches)) throw new SafeError('partial_punch_response');
@@ -84,7 +86,7 @@ export async function openBrowser(url:string):Promise<void> {
   const child=Bun.spawn(command,{stdout:'ignore',stderr:'ignore'});
   if (await child.exited!==0) throw new SafeError('browser_open_failed');
 }
-export interface TimeSentryResult { hours:Map<string,number>; projects:Project[] }
+export interface TimeSentryResult { hours:Map<string,number>; projects:Project[];person?:ReportPerson }
 export async function fetchTimeSentry(since:string,until:string,options:{ consent:boolean; projects:boolean; onBrowser:()=>void; signal:AbortSignal; dependencies?:{ fetch?:Fetch; openBrowser?:(url:string)=>Promise<void> } }):Promise<TimeSentryResult> {
   if (options.consent!==true) throw new SafeError('login_opt_in_required');
   boundaries(since,until); options.signal.throwIfAborted();
@@ -137,7 +139,7 @@ export async function fetchTimeSentry(since:string,until:string,options:{ consen
     const punches=await client.callTool({name:'list_punches',arguments:{fromDate:since,toDate:until}},undefined,{signal:options.signal,timeout:60_000});
     const hours=normalizePunches(employee,punches,since,until);
     const projects=options.projects?projectContext(unwrap(await client.callTool({name:'list_projects',arguments:{}},undefined,{signal:options.signal,timeout:60_000})),unwrap(punches)):[];
-    return {hours,projects};
+    return {hours,projects,person:employeePerson(employee)};
   } finally {
     clearTimeout(timeout); options.signal.removeEventListener('abort',abort);
     await client.close().catch(()=>{}); server.stop(true); tokens=undefined; verifier=''; clientInfo={client_id:CLIENT_ID};

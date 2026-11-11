@@ -7,6 +7,7 @@ export type Label = typeof labels[number];
 export type Span = [number,number];
 export type Model = { id:string; providerID:string; name?:string };
 export type Counts = Record<Label,number>;
+export interface ReportPerson {name:string;source:'timesentry_profile'|'timesentry_altevo_email'}
 export const counts = ():Counts => ({ work:0,personal:0,mixed:0,unknown:0 });
 export const reasonCodes = new Set('reason_unavailable conflicting_evidence conflicting_messages conflicting_session_directories source_metadata_ambiguous source_changed_since_discovery source_load_failed no_relevant_messages malformed_transcript transcript_text_limit missing_message_timestamp incomplete_transcript no_conversation_text no_project_context cached_classification cached_unknown_reason_unavailable keyword_project_reference project_alias_reference project_directory_reference jira_issue_reference model_project_match model_personal model_mixed model_unknown model_low_confidence invalid_model_response model_transport_failure model_request_timeout model_rate_limited evidence_chunk_limit call_budget_exhausted failure_circuit_open session_time_limit operator_declared_work_only'.split(' '));
 export interface RecordEntry { role:'user'|'assistant'; start:number|null; end:number|null; text:string; cwd:string|null; fingerprint:string }
@@ -55,6 +56,7 @@ export interface Aggregate { paired_days:number; captured_activity_hours:number|
 export interface Report {
   schema_version:5; implementation:'bun-typescript-v1'; since:string; until:string; timezone:'America/Toronto';
   current_day_in_progress:boolean; work_ownership_source:string; timesentry_coverage:'complete'|'operator_confirmed'|'unknown';
+  person?:ReportPerson;
   timesentry_retrieval:{ status:'self_only_read_completed'; scope_completeness:string };
   daily_ratio_policy:Record<string,unknown>; daily_ratio_interpretation:string; primary_ratio_client:Client;
   classification_counts:Counts; classifier_counts:Record<string,number>; unknown_reason_counts:Record<string,number>;

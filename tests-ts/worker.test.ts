@@ -90,3 +90,7 @@ test('older clients cannot mistake an in-progress preparation for delivered emai
   const e=env();e.db.query('INSERT INTO preparation_leases VALUES (?,?,unixepoch())').run(defaultId(),'active-owner');
   const legacy=request();legacy.headers.delete('X-Report-Protocol');const response=await worker.fetch(legacy,e.value);expect(response.status).toBe(503);expect((await response.json() as any).error).toBe('report_processing');expect(e.sent.length).toBe(0);
 });
+test('the TimeSentry display name labels the email and embedded dashboard',async()=>{
+  const e=env(),report=sampleReport();report.person={name:'Synthetic Person',source:'timesentry_profile'};
+  expect((await worker.fetch(request({version:1,participant:'assigned-code',report}),e.value)).status).toBe(200);expect(e.sent[0].subject).toContain('Synthetic Person');const files=unzipSync(Uint8Array.from(atob(e.sent[0].attachments[0].content),c=>c.charCodeAt(0)));expect(strFromU8(files['report.html'])).toContain('<h1>Synthetic Person</h1>');
+});

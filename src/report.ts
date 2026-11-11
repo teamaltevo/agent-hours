@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { boundaries, privateWrite, today, SafeError } from './core.ts';
 import { spans, transcript } from './sources.ts';
 import { Classifier, redact } from './classifier.ts';
-import { counts, metrics, type Report, type Candidate, type Client, type Session, type Label, type SourceStatus, type Day } from './types.ts';
+import { counts, metrics, type Report, type Candidate, type Client, type Session, type Label, type SourceStatus, type Day,type ReportPerson } from './types.ts';
 import type { RunProfile } from './profile.ts';
 import { DetailBuilder } from './details.ts';
 import { dailyCSV } from './public-report.ts';
@@ -16,6 +16,7 @@ export interface BuildOptions {
   workers:number;batchSize:number;directory:string;signal:AbortSignal;
   onProgress:(done:number,total:number)=>void;
   profile?:RunProfile;
+  person?:ReportPerson;
 }
 export class ReportBuilder {
   report:Report;dayBounds:ReturnType<typeof boundaries>;path:string;indexPath:string;done=0;
@@ -35,6 +36,7 @@ export class ReportBuilder {
     const lookup=new Map(days.map(d=>[d.date,d]));
     for (const candidate of options.candidates) for (const day of candidate.history) if (lookup.has(day)) lookup.get(day)!.history_observed_by_client[candidate.client]=true;
     this.report={schema_version:5,implementation:'bun-typescript-v1',since:options.since,until:options.until,timezone:'America/Toronto',current_day_in_progress:options.until===today(),work_ownership_source:options.workOnly?'operator_declared_work_only':'automatic_inference',timesentry_coverage:'complete',timesentry_retrieval:{status:'self_only_read_completed',scope_completeness:'complete'},daily_ratio_policy:{schema_version:2,denominator:'all_returned_timesentry_hours',unknown_policy:'exclude_as_personal_for_ratio',ratio_mode:'observed_history_proxy'},daily_ratio_interpretation:'Captured activity divided by returned TimeSentry hours on dates with recorded history. Estimates are not productivity, compute runtime, human work or billing.',primary_ratio_client:active.includes('opencode')?'opencode':active[0],classification_counts:counts(),classifier_counts:{},unknown_reason_counts:{},clients:clientReports,days,observed_day_aggregates:{},default_aggregate:{paired_days:0,agent_hours:null,developer_hours:null,ratio:null},processed_sessions:0,pending_sessions:options.candidates.length,run_status:'in_progress'};
+    if(options.person)this.report.person=options.person;
   }
   add(candidate:Candidate,session:Session,label:Label):void {
     const r=this.report;const client=r.clients[session.client]!;

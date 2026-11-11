@@ -29,6 +29,18 @@ for explicit confirmation with a `[y/N]` prompt.
 
 ## Sources and output
 
+The report heading and email use the signed-in person's name from TimeSentry's
+`current_employee` response. If no profile name is supplied, the CLI uses the
+local part of that same person's `@altevo.ca` email as a display name. Other email
+domains are not used for guessing. Only the resulting name is exported—not the
+email address, employee ID or full profile—and it is not added to classification
+prompts. If neither source provides a name, the report stays unnamed.
+
+Charts use pinned **Chart.js 4.6.1**, embedded with its MIT license directly in
+each HTML report. No CDN, date adapter, external fonts or internet connection is
+needed to view a downloaded report. Legends toggle series and tooltips show
+exact values; missing dates remain gaps rather than becoming zeros.
+
 The period is January 1, 2023 through today in Montréal; today remains partial.
 Use `--database PATH` to add an OpenCode archive, or
 `--clients opencode,codex` to select clients. See `bun run start --help` for all
@@ -214,6 +226,10 @@ control ratio availability.
 bun run typecheck
 bun test tests-ts
 ```
+
+After changing the pinned Chart.js version, regenerate its checked-in offline
+runtime with `bun run vendor:charts`. The CLI and Worker import that text asset;
+they do not read `node_modules` or fetch a library when generating reports.
 
 The old Python CLI has been removed. The standalone `ratio_chart.py` and
 `chart_insights.py` utilities remain for existing aggregate reports; they use

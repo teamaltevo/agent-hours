@@ -54,7 +54,7 @@ test('real MCP SDK OAuth handshake is self-only, read-only and memory-only (mock
     if(body.method==='initialize')response={protocolVersion:'2025-03-26',capabilities:{tools:{}},serverInfo:{name:'synthetic',version:'1'}};
     else if(body.method==='tools/call'){
       const name=body.params.name;tools.push(name);
-      if(name==='current_employee')response=result({employeeId:employee});
+      if(name==='current_employee')response=result({employeeId:employee,firstName:'Synthetic',lastName:'Person',email:'synthetic@altevo.ca'});
       else if(name==='list_punches'){expect(body.params.arguments).toEqual({fromDate:'2026-06-01',toDate:'2026-06-01'});response=result([punch()]);}
       else if(name==='list_projects')response=result([{name:'Synthetic',projects:[{id:'private_project_id',title:'Synthetic Product'}]}]);
       else throw new Error('Write/unexpected tool rejected');
@@ -65,4 +65,5 @@ test('real MCP SDK OAuth handshake is self-only, read-only and memory-only (mock
     const auth=new URL(value);expect(auth.searchParams.get('scope')).toBe(SCOPE);const callback=new URL(auth.searchParams.get('redirect_uri')!);callback.searchParams.set('state',auth.searchParams.get('state')!);callback.searchParams.set('code','SYNTHETIC_CODE');const response=await fetch(callback);expect(response.status).toBe(200);
   }}});
   expect(output.hours.get('2026-06-01')).toBe(2);expect(tools).toEqual(['current_employee','list_punches','list_projects']);expect(browserCount).toBe(1);expect(posts).toContain('token');expect(JSON.stringify([...output.hours])).not.toContain('TOKEN');
+  expect(output.person).toEqual({name:'Synthetic Person',source:'timesentry_profile'});expect(JSON.stringify(output.person)).not.toContain('@');expect(JSON.stringify(output.person)).not.toContain(employee);
 });

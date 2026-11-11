@@ -41,6 +41,12 @@ command text, tool output, private session IDs, paths and credentials are exclud
 Aggregated work hours, dates and activity measurements can still be sensitive.
 Email recipients and the mail infrastructure necessarily receive that aggregate data.
 
+Reports also include the person's display name when TimeSentry provides one,
+or a name derived from their own returned `@altevo.ca` address when the profile
+name is absent. This is an explicitly allowed personal-data field; raw email
+addresses, employee IDs and the rest of the profile remain excluded. The name
+and its source are self-reported to the public Worker, not proof of identity.
+
 TimeSentry OAuth tokens remain in memory and are not forwarded to the report
 Worker. The earlier report-upload token is obsolete; it must not be published
 or confused with the deliberately public phrase.

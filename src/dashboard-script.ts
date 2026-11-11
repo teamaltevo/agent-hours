@@ -1,30 +1,16 @@
 import { names } from './types.ts';
+import { CHARTING_SCRIPT } from './charting.ts';
 
-export const DASHBOARD_SCRIPT='const N='+JSON.stringify(names)+';'+String.raw`
+export const DASHBOARD_SCRIPT='const N='+JSON.stringify(names)+';'+CHARTING_SCRIPT+String.raw`
 const R=JSON.parse(document.getElementById('report-data').textContent),$=id=>document.getElementById(id),C=Object.keys(R.clients);
 const colors=['#176c89','#49816b','#b06a3d','#77829b'],confirmed=R.timesentry_retrieval.status==='self_only_read_completed';
 const num=v=>Number.isFinite(v)?v:0,fmt=(v,d=2)=>v==null?'—':Number(v).toLocaleString('en-CA',{maximumFractionDigits:d});
 const row=(label,value)=>'<tr><td>'+label+'</td><td>'+value+'</td></tr>';
-const bar=(label,value,max,unit='h')=>'<div class="bar-row"><span>'+label+'</span><div class="rail"><div class="fill" style="width:'+Math.min(100,Math.max(0,num(value)/Math.max(.001,max)*100))+'%"></div></div><b>'+fmt(value)+' '+(value==null?'':unit)+'</b></div>';
 const work=d=>confirmed?d.developer_hours:d.returned_punch_hours;
 function daysIn(period,unit){const first=Date.parse(period+(unit==='month'?'-01':''));return R.days.filter(d=>unit==='month'?d.date.startsWith(period):Date.parse(d.date)>=first&&Date.parse(d.date)<first+7*86400000);}
 function totalWork(days){const values=days.map(work).filter(v=>v!=null);return values.length?values.reduce((a,b)=>a+b,0):null;}
 function cards(items){$('kpis').innerHTML=items.map(([label,value,unit,note])=>'<div class="kpi"><small>'+label+'</small><span class="value">'+fmt(value)+' '+(value==null?'':unit)+'</span><small>'+note+'</small></div>').join('');}
-function legend(series){$('legend').innerHTML=series.map(s=>'<span><i class="key" style="background:'+s.color+'"></i>'+s.label+'</span>').join('');}
-function chart(rows,series,ratio){
- const data=rows.filter(d=>series.some(s=>d.values[s.key]!=null));
- if(!data.length)return '<p class="unavailable">'+(ratio?'Ratios unavailable.':'No measurements for this selection.')+'</p>';
- const width=1120,height=360,left=68,right=24,top=25,bottom=60,pw=width-left-right,ph=height-top-bottom;
- const instant=d=>Date.parse(d.length===7?d+'-01T00:00:00Z':d+'T00:00:00Z'),first=instant(data[0].date),last=instant(data.at(-1).date),range=Math.max(86400000,last-first);
- let max=ratio?1:.1;for(const d of data)for(const s of series)max=Math.max(max,num(d.values[s.key]));max*=1.1;
- const x=d=>left+14+(instant(d.date)-first)/range*(pw-28),y=v=>top+ph*(1-v/max),slot=Math.min(30,Math.max(2,pw/Math.max(data.length,range/86400000+1)*.76)),bw=Math.max(.6,slot/series.length);
- let svg='<svg class="chart" viewBox="0 0 '+width+' '+height+'" role="img" aria-label="'+(ratio?'Activity per work hour':'Work and agent activity')+'">';
- for(let i=0;i<=4;i++){const value=max*i/4,yy=y(value);svg+='<line class="grid" x1="'+left+'" x2="'+(width-right)+'" y1="'+yy+'" y2="'+yy+'"/><text x="'+(left-12)+'" y="'+(yy+5)+'" text-anchor="end">'+fmt(value,1)+(ratio?'×':' h')+'</text>';}
- if(ratio&&max>=1)svg+='<line class="reference" x1="'+left+'" x2="'+(width-right)+'" y1="'+y(1)+'" y2="'+y(1)+'"/>';
- for(const d of data)series.forEach((s,index)=>{const v=d.values[s.key];if(v==null)return;const xx=x(d)+(index-series.length/2)*bw;svg+='<g tabindex="0"><title>'+d.date+' · '+s.label+': '+fmt(v,4)+(ratio?'×':' h')+'</title>'+(v===0?'<circle cx="'+(xx+bw/2)+'" cy="'+y(0)+'" r="2" fill="none" stroke="'+s.color+'"/>':'<rect x="'+xx+'" y="'+y(v)+'" width="'+Math.max(.6,bw-.3)+'" height="'+Math.max(.6,y(0)-y(v))+'" fill="'+s.color+'"/>')+'</g>';});
- const ticks=[data[0],data[Math.floor(data.length/2)],data.at(-1)];let previous='';ticks.forEach((d,i)=>{if(d.date===previous)return;previous=d.date;svg+='<text x="'+x(d)+'" y="'+(height-25)+'" text-anchor="'+(i===0?'start':i===2?'end':'middle')+'">'+d.date+'</text>';});
- return svg+'</svg>';
-}
+function legend(){ $('legend').innerHTML=''; }
 function mergeDistribution(items){
  const freq=new Map();for(const d of items)for(const [value,count]of d?.frequencies_ms??[])freq.set(value,(freq.get(value)??0)+count);
  const sorted=[...freq].sort((a,b)=>a[0]-b[0]),count=sorted.reduce((n,[,c])=>n+c,0);const pick=k=>{let n=0;for(const [v,c]of sorted){n+=c;if(n>=k)return v;}return null;};
@@ -33,17 +19,17 @@ function mergeDistribution(items){
 function mergeLeaf(items){const result={};for(const key of ['calls','success','failure','unknown_status','missing_duration'])result[key]=items.reduce((n,t)=>n+num(t?.[key]),0);result.recorded_duration=mergeDistribution(items.map(t=>t?.recorded_duration));result.observed_round_trip=mergeDistribution(items.map(t=>t?.observed_round_trip));return result;}
 function allTools(){const items=C.map(c=>R.clients[c].details?.tools).filter(Boolean);const result=mergeLeaf(items);result.by_category={};for(const key of ['shell','file_read','file_write','search','web','browser','agent','other'])result.by_category[key]=mergeLeaf(items.map(t=>t.by_category[key]));result.shell_command_families={};const families=new Set(items.flatMap(t=>Object.keys(t.shell_command_families)));for(const key of families)result.shell_command_families[key]=mergeLeaf(items.map(t=>t.shell_command_families[key]));return result;}
 function panels(detail,counts,all=false){
- const tools=all?allTools():detail?.tools,categoryRows=Object.entries(tools?.by_category??{}).filter(([,v])=>v.calls>0).sort((a,b)=>b[1].recorded_duration.total_ms-a[1].recorded_duration.total_ms),max=Math.max(...categoryRows.map(([,v])=>v.recorded_duration.total_ms/1000),1);
- $('tools').innerHTML=categoryRows.map(([key,v])=>bar(key.replaceAll('_',' '),v.recorded_duration.count?v.recorded_duration.total_ms/1000:null,max,'s')).join('')||'<p class="unavailable">No tool measurements.</p>';
+ const tools=all?allTools():detail?.tools,categoryRows=Object.entries(tools?.by_category??{}).filter(([,v])=>v.calls>0).sort((a,b)=>b[1].recorded_duration.total_ms-a[1].recorded_duration.total_ms);
+ horizontalChart('tools',categoryRows.map(([key])=>key.replaceAll('_',' ')),[{label:'Recorded wall time',data:categoryRows.map(([,v])=>v.recorded_duration.count?v.recorded_duration.total_ms/1000:null),backgroundColor:'var(--accent)'},{label:'Round-trip estimate',data:categoryRows.map(([,v])=>v.observed_round_trip.count?v.observed_round_trip.total_ms/1000:null),backgroundColor:'var(--neutral)'}],'s','No tool measurements.');
  $('tool-quality').innerHTML='<table><tbody>'+row('Calls',fmt(tools?.calls,0))+row('Succeeded / failed',fmt(tools?.success,0)+' / '+fmt(tools?.failure,0))+row('Unknown outcome',fmt(tools?.unknown_status,0))+row('Duration unavailable',fmt(tools?.missing_duration,0))+row('Median recorded',fmt(tools?.recorded_duration.median_ms)+' ms')+row('95th percentile',fmt(tools?.recorded_duration.p95_ms)+' ms')+row('Recorded total',tools?.recorded_duration.count?fmt(tools.recorded_duration.total_ms/1000)+' s':'—')+row('Round-trip estimate',tools?.observed_round_trip.count?fmt(tools.observed_round_trip.total_ms/1000)+' s':'—')+'</tbody></table>';
- const families=Object.entries(tools?.shell_command_families??{}).sort((a,b)=>b[1].calls-a[1].calls),fmax=Math.max(...families.map(([,v])=>v.calls),1);$('commands').innerHTML=families.map(([key,v])=>bar(key.replaceAll('_',' '),v.calls,fmax,'calls')).join('')||'<p class="unavailable">No recorded shell calls.</p>';
- const total=Object.values(counts).reduce((a,b)=>a+b,0),shades=['var(--accent)','var(--neutral)','#a38b65','var(--line)'];$('classification').innerHTML='<div class="stack">'+Object.entries(counts).map(([key,value],i)=>'<span title="'+key+': '+value+'" style="width:'+(total?value/total*100:0)+'%;background:'+shades[i]+'"></span>').join('')+'</div><table><tbody>'+Object.entries(counts).map(([key,v])=>row(key,fmt(v,0))).join('')+'</tbody></table>';
+ const families=Object.entries(tools?.shell_command_families??{}).sort((a,b)=>b[1].calls-a[1].calls);horizontalChart('commands',families.map(([key])=>key.replaceAll('_',' ')),[{label:'Shell calls',data:families.map(([,v])=>v.calls)}],'calls','No recorded shell calls.');
+ classificationChart(counts);
  if(all){$('usage').innerHTML='<table><thead><tr><th>Client</th><th>Input</th><th>Output</th><th>Est. USD</th></tr></thead><tbody>'+C.map(c=>{const u=R.clients[c].details?.usage;return '<tr><td>'+N[c]+'</td><td>'+fmt(u?.input_tokens,0)+'</td><td>'+fmt(u?.output_tokens,0)+'</td><td>'+fmt(u?.reported_estimated_cost_usd,4)+'</td></tr>';}).join('')+'</tbody></table>';}
  else{const u=detail?.usage;$('usage').innerHTML='<table><tbody>'+row('Input tokens',fmt(u?.input_tokens,0))+row('Output tokens',fmt(u?.output_tokens,0))+row('Cache read / write',fmt(u?.cache_read_tokens,0)+' / '+fmt(u?.cache_write_tokens,0))+row('Reasoning tokens',fmt(u?.reasoning_tokens,0))+row('Estimated USD',fmt(u?.reported_estimated_cost_usd,4))+'</tbody></table>';}
  $('coverage').textContent='';
 }
-function topDays(days,amount,total){const top=days.filter(d=>amount(d)!=null).sort((a,b)=>num(amount(b))-num(amount(a))).slice(0,5),max=Math.max(...top.map(d=>num(amount(d))),1);$('top-days').innerHTML=top.map(d=>bar(d.date,amount(d),max)).join('')||'<p class="unavailable">No measured activity.</p>';$('concentration').textContent=total>0?'Top '+top.length+' dates: '+fmt(top.reduce((n,d)=>n+num(amount(d)),0)/total*100,1)+'% of activity.':'';}
-function overlap(a){const max=Math.max(num(a?.summed_hours),1);$('overlap').innerHTML=bar('Session totals',a?.summed_hours,max)+bar('Distinct time',a?.elapsed_union_hours,max)+bar('Overlap',a?.overlapping_hours,max)+'<p class="meta">Peak concurrency: '+fmt(a?.peak_concurrency,0)+'</p>';}
+function topDays(days,amount,total){disposeCharts('top-days');const top=days.filter(d=>amount(d)!=null).sort((a,b)=>num(amount(b))-num(amount(a))).slice(0,5);horizontalChart('top-days',top.map(d=>d.date),[{label:'Agent activity',data:top.map(amount)}],'h','No measured activity.');$('concentration').textContent=total>0?'Top '+top.length+' dates: '+fmt(top.reduce((n,d)=>n+num(amount(d)),0)/total*100,1)+'% of activity.':'';}
+function overlap(a){horizontalChart('overlap',['Session totals','Distinct time','Overlap'],[{label:'Captured activity',data:[a?.summed_hours??null,a?.elapsed_union_hours??null,a?.overlapping_hours??null]}]);$('overlap').insertAdjacentHTML('beforeend','<p class="meta">Peak concurrency: '+fmt(a?.peak_concurrency,0)+'</p>');}
 function renderAll(){
  const unit=$('period').value,isRatio=$('view').value==='ratio',native=$('measure').value==='native_clients',days=R.days.filter(d=>C.some(c=>d.history_observed_by_client[c]===true)),rows=[];
  if(native){
@@ -52,8 +38,9 @@ function renderAll(){
   else{const keys=[...new Set((R.period_summaries?.[unit]??[]).map(p=>p.period))].sort();for(const key of keys){const values={work:totalWork(daysIn(key,unit))};for(const c of C){const p=R.period_summaries[unit].find(p=>p.period===key&&p.client===c);values[c]=R.clients[c].observed_inferred_work_hours==null?null:isRatio?p?.ratio??null:p?.captured_work_hours??null;}rows.push({date:key,values});}}
   cards([[confirmed?'Work hours':'Returned work',totalWork(R.days),'h','TimeSentry'],['Clients with activity',C.filter(c=>R.clients[c].observed_inferred_work_hours!=null).length,'','of '+C.length+' sources'],['Work sessions',R.classification_counts.work,'','Included'],['Tool calls',allTools().calls,'','Recorded calls']]);
   legend(series);$('main-chart').innerHTML=chart(rows,series,isRatio);$('main-caption').textContent='Client measurements are shown separately.';
-  $('overlap').innerHTML='<table><thead><tr><th>Client</th><th>Session h</th><th>Distinct h</th><th>Peak</th></tr></thead><tbody>'+C.map(c=>{const a=R.clients[c].observed_inferred_work_hours==null?null:R.clients[c].details?.activity;return '<tr><td>'+N[c]+'</td><td>'+fmt(a?.summed_hours)+'</td><td>'+fmt(a?.elapsed_union_hours)+'</td><td>'+fmt(a?.peak_concurrency,0)+'</td></tr>';}).join('')+'</tbody></table>';
-  $('top-days').innerHTML=C.filter(c=>R.clients[c].observed_inferred_work_hours!=null).map(c=>'<h3>'+N[c]+'</h3>'+[...days].filter(d=>d.captured_work_hours_by_client[c]!=null).sort((a,b)=>num(b.captured_work_hours_by_client[c])-num(a.captured_work_hours_by_client[c])).slice(0,3).map(d=>bar(d.date,d.captured_work_hours_by_client[c],Math.max(1,R.clients[c].observed_inferred_work_hours))).join('')).join('');$('concentration').textContent='';
+  const measured=C.filter(c=>R.clients[c].observed_inferred_work_hours!=null);horizontalChart('overlap',measured.map(c=>N[c]),[{label:'Session totals',data:measured.map(c=>R.clients[c].details?.activity.summed_hours??null),backgroundColor:'var(--accent)'},{label:'Distinct time',data:measured.map(c=>R.clients[c].details?.activity.elapsed_union_hours??null),backgroundColor:'var(--neutral)'}]);
+  $('overlap').insertAdjacentHTML('beforeend','<table><thead><tr><th>Client</th><th>Peak concurrency</th></tr></thead><tbody>'+C.map(c=>row(N[c],fmt(R.clients[c].observed_inferred_work_hours==null?null:R.clients[c].details?.activity.peak_concurrency,0))).join('')+'</tbody></table>');
+  disposeCharts('top-days');$('top-days').innerHTML=measured.map(c=>'<h3>'+N[c]+'</h3><div id="top-days-'+c+'"></div>').join('')||'<p class="unavailable">No measured activity.</p>';for(const c of measured){const top=[...days].filter(d=>d.captured_work_hours_by_client[c]!=null).sort((a,b)=>num(b.captured_work_hours_by_client[c])-num(a.captured_work_hours_by_client[c])).slice(0,3);horizontalChart('top-days-'+c,top.map(d=>d.date),[{label:N[c],data:top.map(d=>d.captured_work_hours_by_client[c])}]);}$('concentration').textContent='';
   $('daily-table').innerHTML='<table><thead><tr><th>Date</th><th>Work h</th>'+C.map(c=>'<th>'+N[c]+' h</th>').join('')+'</tr></thead><tbody>'+[...days].reverse().map(d=>'<tr><td>'+d.date+'</td><td>'+fmt(work(d))+'</td>'+C.map(c=>'<td>'+fmt(R.clients[c].observed_inferred_work_hours==null?null:d.captured_work_hours_by_client[c])+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
  }else{
   const a=R.combined.aggregate,detail=R.combined.details,series=isRatio?[{key:'agent',label:'Combined estimate / work',color:'var(--accent)'}]:[{key:'work',label:confirmed?'Work hours':'Returned work hours',color:'var(--neutral)'},{key:'agent',label:'Combined activity estimate',color:'var(--accent)'}];
@@ -84,4 +71,5 @@ const clientMeasures='<option value="primary">Captured agent activity</option><o
 function selectClient(){if($('client').value==='all'){$('measure').innerHTML=(R.combined?'<option value="combined_union">Combined activity estimate</option>':'')+'<option value="native_clients">Separate client measurements</option>';}else $('measure').innerHTML=clientMeasures;render();}
 $('client').value='all';$('client').addEventListener('change',selectClient);for(const id of ['period','view','measure'])$(id).addEventListener('change',render);
 $('download').addEventListener('click',()=>{const a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(R)],{type:'application/json'}));a.href=url;a.download='agent-hours-report.json';a.click();URL.revokeObjectURL(url);});selectClient();
+globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change',render);
 `;
